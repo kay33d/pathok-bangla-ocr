@@ -1,0 +1,10 @@
+torch>=2.1
+torchvision>=0.16
+transformers>=4.40
+tokenizers>=0.19
+regex>=2023.0
+Pillow>=10.0
+numpy>=1.24
+pandas>=2.0
+tqdm>=4.66
+jiwer>=3.0
