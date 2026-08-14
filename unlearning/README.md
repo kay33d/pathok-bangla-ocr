@@ -41,6 +41,9 @@ with recognition.
 | `exp3_relearn.py` | Few-shot relearning attack; steps-to-half recovery vs the oracle's from-scratch rate |
 | `exp4_null_distribution.py` | Permutation test over 20 pseudo-forget draws + random-ranking arm for Stage I |
 | `exp5_gate_v4.py` | Final MIA table, everything referenced to the oracle, with writer-cluster bootstrap CIs |
+| `exp2b_probe_repair.py` | Replaces `exp2_reprobe.py`. Sample-efficiency few-shot curves + cosine verification (AUC/EER), fixed decoder-state probing. See "2026-08-14 additions" below. |
+| `exp3b_relearn_repair.py` | Replaces `exp3_relearn.py`. Adds retain replay so the relearning attack can't hide behind head collapse; see below. |
+| `prune_unlearn_5methods.py` | Self-contained Stage I+II pipeline covering all five of the paper's Stage II methods (WIC, Random Labeling, Fisher Forgetting, Amnesiac Unlearning, DELETE), not just the two `pathok_stage2_gate.py` covers. See below. |
 
 Run order: `pathok_retrain_clean` → `mia_gate_v2` → `stage1_pruning` → `stage1_null_control`
 → `pathok_stage2_gate` → `exp1` (long) → `exp2`–`exp5`.
@@ -73,6 +76,72 @@ writer recovers 54%/73%/84% of baseline forget accuracy within 200 steps — but
 collapsing retain accuracy by >90 points, so it is not a clean recovery.
 
 Numbers above come from single runs at seed 42; `exp1` supports multiple seeds via `O.SEEDS`.
+
+## 2026-08-14 additions
+
+A separate Kaggle account (`mohammedkai`) was independently running a *different*
+Stage II attempt (`unlearning-privacy` kernel) in parallel with `pathok_stage2_gate.py`.
+That one never worked: `UConfig.UNLEARN_BATCH_SIZE` was referenced but never defined,
+so every Stage II call crashed with `AttributeError` before touching the model. Only
+its Stage 0 checkpoint (`multihead_baseline/`) ever made it to disk — confirmed from
+the run's own surviving output, not from reading the code. Whether `pathok_stage2_gate.py`
+itself was ever actually executed to completion, or whether this README's numbers above
+were transcribed from a run whose checkpoints are no longer attached anywhere, wasn't
+established this session either way — the `wic_unmasked`/`random_label` checkpoints were
+not present as an input to `pathok-common-revised` (the Kaggle notebook built around
+`exp2b_probe_repair.py`/`exp3b_relearn_repair.py`) when this session started.
+
+Given that, this session:
+
+1. **Fixed `pathok-common-revised`'s own crash** — one forget writer (of 20) has a single
+   labeled sample, so the page-disjoint split gives it zero training rows; the few-shot
+   probe aborted its *entire* result set the moment any one class had an empty pool instead
+   of excluding just that writer. `exp2b_probe_repair.py`/`exp3b_relearn_repair.py` above are
+   the fixed versions (previously living only in the Kaggle notebook, not in this repo).
+2. **Built `prune_unlearn_5methods.py`**, a from-scratch Stage I+II pipeline against the same
+   canonical `split.json` / `baseline_clean_final.pt`, and ran it end-to-end (smoke-tested at
+   tiny scale first, then the real 800-iteration run) — producing the first unlearning
+   checkpoints this session could confirm actually exist and evaluate. Prune rates follow
+   `stage1_pruning.py`'s groups (shallow/middle/deep) but **the null-distribution control from
+   `exp4_null_distribution.py` was not re-run against this pass** — so, consistent with this
+   README's own "Stage I does not replicate" finding above, the "pruning only" damage reported
+   below should not be read as evidence pruning is targeting forget-specific structure. Every
+   Stage II arm starts from the same pruned checkpoint regardless.
+3. **Implemented Fisher Forgetting, Amnesiac Unlearning, and DELETE** — genuinely new; none of
+   the three existed anywhere in this project before. Fisher's diagonal-update formula
+   (`θ - α·g_f/(F+μ)`, full 334M parameters, `μ=1e-8`) proved numerically unstable at this
+   scale: the model never recovered (CER stayed >180% through 760 fine-tuning steps). Reported
+   as-is rather than re-tuned — a real negative result, not a bug to paper over.
+4. **Extended `exp2b_probe_repair.py`/`exp3b_relearn_repair.py`'s arms** to cover all five
+   methods and re-ran both audits.
+
+**Corroboration.** Independent of `pathok_stage2_gate.py`'s "decoder-confidence MIA ... writer-level
+95%" finding above, this session's own recognition-head MIA on WIC/Random-Labeling landed at
+92–93% forget-seen-as-member — the same phenomenon, measured a different way, on a different run.
+
+**New finding — the relearning attack works on the paper's own proposed defense, cleanly.**
+`exp3_relearn.py`'s finding above (fast recovery from the oracle, but "at the cost of collapsing
+retain accuracy by >90 points") is exactly the flaw `exp3b_relearn_repair.py`'s retain-replay
+fix targets. Run against WIC/Random-Labeling/Amnesiac/DELETE (no oracle checkpoint was available
+this session), the repaired attack recovers 87–90% of baseline forget-writer identifiability from
+just 5 real examples per writer and 150 steps — **while retain accuracy stays flat** (all rows
+`valid=True`, retain wACC moves by <3 points). That rules out the collapse confound: the recovery
+isn't an artifact of the attack quietly retraining the whole model, it's the forget-writer
+information resurfacing on its own. A second, independent measurement — 1-shot linear probes
+directly on the frozen ViT encoder embeddings, no attack involved — agrees: forget writers sit
+5–19 points above genuinely-unseen writers in separability, smallest for WIC, largest for
+Amnesiac, the same ranking the attack produces. Two independently-built diagnostics converging
+on "the head's output was suppressed, the representation wasn't" is the headline result of this
+session's work.
+
+One caveat this session did *not* resolve: this README's own "identity survives the encoder"
+finding above shows even the **oracle** (zero training exposure) sits at 85.50% forget-writer
+separability against a 5% chance rate — a ViT is generically style-discriminative for Bangla
+handwriting regardless of memorisation. This session's few-shot probe compared forget writers
+against a `test_reference` group (writers never in the training set at all) rather than against
+a true oracle, since no oracle checkpoint existed to attach this session. The reported residual
+gaps (WIC +11.2pt, Amnesiac +18.7pt, etc.) are real, but a rerun against `exp1_retrain_oracle.py`'s
+output would be the more rigorous version of the same comparison.
 
 ## Deviations from the pasted originals
 
