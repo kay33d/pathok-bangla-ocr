@@ -845,9 +845,63 @@ RL+MGDA & Head (weighted) & +16.1 pt & No change vs.\ fixed weights \\
 \end{tabular*}
 \end{table}
 
-\todo{Add if run: ResNet-18 encoder unlearning-resistance control (does a
-smaller, non-pretrained encoder forget more cleanly than TrOCR?) -- not
-executed this study; see Section~\ref{sec:limitations}.}
+A capacity/architecture control was attempted with a stronger encoder than
+ResNet-18: ConvNeXt-Base, chosen specifically because it is designed to
+match ViT-level performance using only convolutional operations, isolating
+architecture family from the confound of ResNet-18's much smaller capacity
+and weaker aggregate accuracy (Table~\ref{tab:encoder-ablation}). A
+ConvNeXt-Base backbone was wrapped to mimic the ViT encoder's call
+interface (a learned CLS token at position~0, projected to the same
+768-dimensional space the pretrained TrOCR decoder's cross-attention
+expects, with a 2D sinusoidal position encoding computed from the actual
+feature-map size) and trained jointly with the writer head under the
+identical protocol as every other arm.
+
+\begin{table}[h]
+\caption{ConvNeXt-Base architecture-control attempt, 8 epochs, writer-disjoint split.}
+\label{tab:convnext}
+\begin{tabular*}{\tblwidth}{@{}LLLL@{}}
+\toprule
+Eval.\ set & Word/Writer ACC (\%) & CER (\%) & WER (\%) \\
+\midrule
+Forget (writer-ID) & 0.00 & -- & -- \\
+Retain (writer-ID) & 5.00 & -- & -- \\
+Forget (recognition) & -- & 0.27 & 0.27 \\
+Retain (recognition) & -- & 0.17 & 0.40 \\
+Test (recognition) & -- & 7.58 & 17.33 \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+The recognition side of this result is a genuine, useful finding on its
+own: ConvNeXt-Base's held-out test CER (7.58\%) sits close to the TrOCR ViT
+oracle's (7.74\%, Table~\ref{tab:probe}'s companion result), confirming
+that a pure-convolutional architecture \emph{can} match Transformer-level
+handwriting recognition when given comparable capacity -- exactly the
+premise ConvNeXt was designed around, and the reason it was chosen over a
+plain ResNet.
+
+The writer-identification side did not work: retain-writer accuracy
+reached only 5.00\% (chance $\approx 1.35\%$ over 74 classes) and
+forget-writer accuracy was 0.00\%, against $\sim$100\%/100\% for the TrOCR
+ViT baseline under the identical joint-training recipe
+(Table~\ref{tab:unlearn-all}). The gate check
+(Section~\ref{sec:unlearn-pipeline}) accordingly failed, and Stage~I/II
+pruning and unlearning were not run against this checkpoint: a model whose
+writer head has not learned to discriminate writers in the first place
+gives no meaningful signal about \emph{unlearning} resistance, since there
+is nothing to forget. We report this as a limitation rather than force a
+Stage~I/II run on an uninformative baseline (Section~\ref{sec:limitations}).
+Two explanations are equally consistent with the numbers above and this
+study does not adjudicate between them: (i) a genuine architectural
+dissociation, where ConvNeXt's locally-built-up convolutional features
+support content recognition well but do not naturally summarize into a
+single token carrying a global, holistic style signature the way a
+Transformer's attention-pooled CLS representation does; or (ii) an
+artifact of this specific adapter, whose CLS token has no pretraining
+signal and may need a longer schedule, a separate learning rate, or a
+larger \texttt{WRITER\_W} to specialize for identity alongside a
+recognition objective that converges quickly on this architecture.
 
 %% ====================================================================
 \section{Discussion}
@@ -920,11 +974,22 @@ reported numbers to be incorrect on their own benchmark.}
   bottleneck into the PATHOK encoder -- was out of scope for this study and
   may behave differently, though Section~\ref{sec:discussion} argues the
   architecture and task gap would likely still apply.
-\item The ResNet-18-vs-forgetting-resistance control proposed in
-  Section~\ref{sec:arf-results} (does a smaller, non-pretrained encoder
-  resist unlearning less?) was not run; it would provide more direct causal
-  evidence for the throughline of Section~\ref{sec:discussion} than the
-  correlational argument given there.
+\item The architecture/capacity control proposed to more directly test the
+  throughline of Section~\ref{sec:discussion} (does a non-Transformer
+  encoder resist unlearning less?) was attempted with ConvNeXt-Base rather
+  than ResNet-18, specifically to hold recognition capacity roughly
+  constant while varying architecture family
+  (Section~\ref{sec:arf-results}). It did not reach the unlearning stage:
+  the writer-identification head failed to learn (5.00\% retain accuracy
+  against $\sim$100\% for the TrOCR ViT arm) despite recognition CER/WER
+  closely matching the ViT arm, so Stage~I/II pruning and unlearning were
+  not run against this checkpoint. This leaves the throughline's
+  architecture-family claim resting on the correlational ResNet-18
+  comparison (Table~\ref{tab:encoder-ablation}) rather than a matched-capacity
+  causal one; a follow-up would need to first resolve whether the
+  ConvNeXt writer-ID gap is a genuine representational property of the
+  architecture or an artifact of this study's CLS-token adapter before the
+  unlearning-resistance question can be tested on it.
 \item Table~\ref{tab:gradet-compare}'s comparison against GraDeT-HTR uses
   each study's own reported numbers rather than a re-run under identical
   splits and preprocessing, and should be read as contextual rather than
