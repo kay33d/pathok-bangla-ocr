@@ -928,7 +928,8 @@ def auc_curve(c, col="forget_full95"):
     """Normalised area under the recovery curve over the step budget. Robust
     where steps_to_target degenerates."""
     x = c["step"].values.astype(float); y = c[col].values.astype(float)
-    return float(np.trapz(y, x) / max(x.max() - x.min(), 1e-9))
+    _trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
+    return float(_trapz(y, x) / max(x.max() - x.min(), 1e-9))
 
 
 def main():
@@ -964,6 +965,36 @@ def main():
         print("  [!!] The baseline is not at ~100% on its own members. Run "
               "exp0_diagnose_baseline.py first -- this target is not credible "
               "and every ratio below inherits the problem.")
+
+    def save_progress(curves, summ):
+        """Overwrite the three output CSVs with everything accumulated so far.
+        Cheap (this data is tiny) and cheap insurance: a Kaggle session that
+        gets cut off mid-run (time limit, preemption) still leaves every
+        arm that finished its k-loop fully saved, instead of losing all
+        compute because to_csv only ran once at the very end."""
+        C = pd.concat(curves, ignore_index=True, sort=False)
+        Sm = pd.DataFrame(summ)
+        C.to_csv(f"{R.OUT}/relearn_curves_with_unseen.csv", index=False)
+
+        if "oracle" in set(Sm["arm"]):
+            ref = Sm[(Sm.arm == "oracle") & (Sm.group == "forget")].set_index("k")
+            Sm["excess_auc_vs_oracle"] = Sm.apply(
+                lambda r: (r["auc"] - ref.loc[r["k"], "auc"])
+                if (r["group"] == "forget" and r["k"] in ref.index) else np.nan,
+                axis=1)
+
+        piv = Sm.pivot_table(index=["arm", "k"], columns="group",
+                              values=["final_acc", "auc"])
+        piv.columns = [f"{a}_{b}" for a, b in piv.columns]
+        if "final_acc_forget" in piv.columns and "final_acc_unseen_control" in piv.columns:
+            piv["final_acc_gap_forget_minus_unseen"] = (
+                piv["final_acc_forget"] - piv["final_acc_unseen_control"])
+        if "auc_forget" in piv.columns and "auc_unseen_control" in piv.columns:
+            piv["auc_gap_forget_minus_unseen"] = piv["auc_forget"] - piv["auc_unseen_control"]
+        piv = piv.reset_index()
+        piv.to_csv(f"{R.OUT}/exp2_speed_gap_summary.csv", index=False)
+        Sm.to_csv(f"{R.OUT}/relearn_summary_with_unseen.csv", index=False)
+        return C, Sm, piv
 
     curves, summ = [], []
     for arm in R.ARMS:
@@ -1016,15 +1047,9 @@ def main():
                 "all_steps_valid": bool(cu["valid"].all()),
                 "recovered_frac": np.nan})
 
-    C = pd.concat(curves, ignore_index=True, sort=False)
-    Sm = pd.DataFrame(summ)
-    C.to_csv(f"{R.OUT}/relearn_curves_with_unseen.csv", index=False)
-
-    if "oracle" in set(Sm["arm"]):
-        ref = Sm[(Sm.arm == "oracle") & (Sm.group == "forget")].set_index("k")
-        Sm["excess_auc_vs_oracle"] = Sm.apply(
-            lambda r: r["auc"] - ref.loc[r["k"], "auc"] if r["group"] == "forget" else np.nan,
-            axis=1)
+        C, Sm, piv = save_progress(curves, summ)
+        print(f"  [checkpoint] progress saved through arm={arm} "
+              f"({len(curves)} curve blocks so far)")
 
     # THE key statistic for Experiment 2: forget-group speed minus
     # unseen-control speed, at matched (arm, k). ~0 means forget writers
@@ -1033,15 +1058,7 @@ def main():
     # every earlier relearning-attack number. Large and positive means the
     # opposite: direct, attack-recipe-level evidence (not just probe-level)
     # that forget-writer information is specifically retained.
-    piv = Sm.pivot_table(index=["arm", "k"], columns="group",
-                          values=["final_acc", "auc"])
-    piv.columns = [f"{a}_{b}" for a, b in piv.columns]
-    piv["final_acc_gap_forget_minus_unseen"] = piv["final_acc_forget"] - piv["final_acc_unseen_control"]
-    piv["auc_gap_forget_minus_unseen"] = piv["auc_forget"] - piv["auc_unseen_control"]
-    piv = piv.reset_index()
-    piv.to_csv(f"{R.OUT}/exp2_speed_gap_summary.csv", index=False)
-
-    Sm.to_csv(f"{R.OUT}/relearn_summary_with_unseen.csv", index=False)
+    C, Sm, piv = save_progress(curves, summ)
 
     print("\n" + "=" * 104)
     print("  EXPERIMENT 2 -- forget-writer vs.\\ genuinely-unseen-writer relearning speed")

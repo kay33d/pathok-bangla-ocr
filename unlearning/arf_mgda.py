@@ -150,7 +150,7 @@ def adversarial_representation_forget(model, ctx, masks, iters, checkpoint_steps
                                dtype=torch.long, device=DEVICE)
         with torch.amp.autocast("cuda", dtype=torch.float16,
                                 enabled=cfg.AMP and DEVICE == "cuda"):
-            enc_f = model.ved.encoder(pixel_values=pv_f, return_dict=True)
+            enc_f = model.cnn_encoder(pv_f)
             z_f = enc_f.last_hidden_state[:, 0, :]
             wlog_f = model.writer_head(z_f)
             rec_f = model.ved(encoder_outputs=enc_f, labels=lb_f, return_dict=True)
@@ -264,9 +264,16 @@ def unlearn_mgda(model, ctx, masks, method, iters, checkpoint_steps, tag, cfg=PC
     forget_idx_set = set(int(i) for i in forget_df["wid"].unique())
     retain_idx_pool = np.array([i for i in range(n_classes) if i not in forget_idx_set])
 
-    f_iter = _infinite(DataLoader(WDataset(forget_df, vocab, fe), batch_size=cfg.UNLEARN_BATCH_SIZE,
+    # MGDA keeps two full fp32 backward graphs alive per step (no AMP -- the
+    # alpha blend is a stability-sensitive dot-product over the full grad
+    # vector). ConvNeXt-Base's conv activations at fp32 don't fit the T4 at
+    # cfg.UNLEARN_BATCH_SIZE (OOM'd on first ConvNeXt smoke test); halve it
+    # here only, since ARF/WIC/RL/Amnesiac/DELETE all run under fp16 autocast
+    # and don't need this.
+    mgda_batch_size = max(1, cfg.UNLEARN_BATCH_SIZE // 2)
+    f_iter = _infinite(DataLoader(WDataset(forget_df, vocab, fe), batch_size=mgda_batch_size,
                                   shuffle=True, drop_last=True, num_workers=S.NUM_WORKERS))
-    r_iter = _infinite(DataLoader(WDataset(retain_df, vocab, fe), batch_size=cfg.UNLEARN_BATCH_SIZE,
+    r_iter = _infinite(DataLoader(WDataset(retain_df, vocab, fe), batch_size=mgda_batch_size,
                                   shuffle=True, drop_last=True, num_workers=S.NUM_WORKERS))
 
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.UNLEARN_LR, weight_decay=0.01)
@@ -303,7 +310,13 @@ def unlearn_mgda(model, ctx, masks, method, iters, checkpoint_steps, tag, cfg=PC
 
         alpha = mgda_alpha(g_u, g_r)
         alpha_log.append(alpha)
-        g_final = alpha * g_u + (1 - alpha) * g_r
+        # in-place blend into g_r's buffer -- a fresh g_final tensor would be a
+        # third ~1.4GB full-param-count fp32 vector alive at once (with g_u,
+        # g_r, the model's own params, and AdamW's 2x state); ConvNeXt-Base's
+        # heavier activations leave no room for it on a T4.
+        g_r.mul_(1 - alpha).add_(g_u, alpha=alpha)
+        g_final = g_r
+        del g_u
 
         opt.zero_grad(set_to_none=True)
         offset = 0

@@ -33,11 +33,12 @@ RED = "#C1544A"
 # Fig A: extended tokenizer ablation -- word accuracy, 6 variants
 # (Table: tab:tokenizer-ablation)
 # ══════════════════════════════════════════════════════════════════════
-tok_labels = ["Grapheme", "BPE\nvocab 500", "Character", "Unigram\nvocab 2000",
-              "BPE\nvocab 2000", "BPE\nvocab 4000"]
-tok_acc = [92.21, 91.02, 88.54, 89.34, 87.77, 86.15]
-tok_cer = [2.52, 3.11, 3.30, 3.99, 4.25, 5.59]
-tok_colors = [GREEN, BLUE, DARK, PURPLE, BLUE, BLUE]
+tok_labels = ["Grapheme", "BPE\nvocab 500", "Character", "Unigram\nvocab 500",
+              "Unigram\nvocab 2000", "WordPiece\nvocab 2000", "BPE\nvocab 2000",
+              "BPE\nvocab 4000"]
+tok_acc = [92.21, 91.02, 88.54, 89.02, 89.34, 88.81, 87.77, 86.15]
+tok_cer = [2.52, 3.11, 3.30, 3.76, 3.99, 4.10, 4.25, 5.59]
+tok_colors = [GREEN, BLUE, DARK, PURPLE, PURPLE, RED, BLUE, BLUE]
 
 fig, ax1 = plt.subplots(figsize=(9, 5.8))
 x = np.arange(len(tok_labels))
@@ -52,9 +53,9 @@ ax1.grid(axis="y", color="#eee", linewidth=1, zorder=0)
 ax1.set_axisbelow(True)
 for xi, v in zip(x, tok_acc):
     ax1.text(xi, v + 0.25, f"{v:.2f}%", ha="center", fontsize=9, color="#333")
-ax1.set_title("Word accuracy across all six tokenizer configurations tested\n"
+ax1.set_title("Word accuracy across all eight tokenizer configurations tested\n"
                "(bars colored by vocabulary-construction family: green=grapheme, "
-               "dark=character, blue=BPE, purple=Unigram)")
+               "dark=character, blue=BPE, purple=Unigram, red=WordPiece)")
 plt.tight_layout()
 plt.savefig(os.path.join(OUT, "fig_tokenizer_sweep.png"), dpi=160, bbox_inches="tight")
 plt.close()

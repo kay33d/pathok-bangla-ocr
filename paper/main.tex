@@ -746,6 +746,36 @@ and the strongest evidence in this paper that the recognition side of the
 architecture-family question is close to a genuine tie, even as
 Section~\ref{sec:arf-results} shows the writer-identification side is not.
 
+\textbf{Is ResNet-18's gap a decoder-capacity artifact?} Table~\ref{tab:encoder-ablation}
+pairs ResNet-18's 11.2M-parameter CNN encoder with the same lightweight
+custom \texttt{nn.TransformerDecoder} throughout this paper (26.2M
+parameters, $d_{\text{model}}{=}512$), while both ViT and ConvNeXt-Base
+carry TrOCR's pretrained 196.8M-parameter decoder -- an order-of-magnitude
+difference that leaves open whether ResNet-18's 8-point recognition
+deficit is really an encoder-quality effect or simply reflects its
+much smaller decoder. To isolate this, ResNet-18's decoder was scaled up
+to the same architectural \emph{style} ($\mathrm{dim}_{\text{ff}}{=}4
+d_{\text{model}}$, 6 layers, dropout 0.1) at $d_{\text{model}}{=}1424$,
+$\mathrm{nhead}{=}16$ -- a closed-form parameter count, verified exactly
+against a live PyTorch instantiation before training, of 197.7M, matching
+ConvNeXt's decoder to within 0.5\%. Trained from scratch under the same
+protocol as the original ResNet-18 arm (10 epochs, Adam $10^{-4}$,
+\texttt{ReduceLROnPlateau}, batch 32, identical 80/10/10 split), the
+scaled-decoder variant reached 81.24\% word accuracy, 16.54\% CER, and
+18.76\% WER -- \emph{worse} than the original 26.2M-parameter decoder
+(83.88\%, 8.36\%, 16.12\%) on every metric, not better. Training was also
+visibly less stable: validation CER oscillated between 13.86\% and
+46.59\% across epochs 6--8 with a fixed learning rate and no warmup,
+where the small-decoder arm converged smoothly. Matching the decoder
+parameter count of ViT and ConvNeXt-Base does not close any of ResNet-18's
+gap to them; if anything, the larger decoder is harder to optimize on top
+of an unchanged 11.2M-parameter encoder without a matching increase in
+encoder capacity or a warmup schedule tuned for it. This is consistent
+with the gap being substantially an \emph{encoder}-capacity effect (11.2M
+parameters vs.\ ViT's 86.7M or ConvNeXt's 88.4M) rather than a decoder
+one, though it does not rule out that a better-tuned optimizer schedule
+for the larger decoder specifically might recover some of the loss.
+
 Two further checks target the headline TrOCR~+~grapheme number itself
 rather than the architecture comparison. First, \texttt{encode\_label()}
 in the recognition pipeline prepends an explicit beginning-of-sequence
@@ -804,7 +834,9 @@ Tokenizer & Word Acc.\ (\%) & CER (\%) & WER (\%) \\
 Grapheme & \textbf{92.21} & \textbf{2.52} & \textbf{7.79} \\
 BPE, vocab 500 & 91.02 & 3.11 & 8.98 \\
 Character & 88.54 & 3.30 & 11.46 \\
+SentencePiece Unigram, vocab 500 & 89.02 & 3.76 & 10.98 \\
 SentencePiece Unigram, vocab 2000 & 89.34 & 3.99 & 10.66 \\
+WordPiece, vocab 2000 & 88.81 & 4.10 & 11.19 \\
 BPE, vocab 2000 & 87.77 & 4.25 & 12.23 \\
 BPE, vocab 4000 & 86.15 & 5.59 & 13.85 \\
 \bottomrule
@@ -814,11 +846,14 @@ BPE, vocab 4000 & 86.15 & 5.59 & 13.85 \\
 \begin{figure}[h]
 \centering
 \includegraphics[width=\linewidth]{figs/fig_tokenizer_sweep.png}
-\caption{Word accuracy across all six tokenizer configurations tested
+\caption{Word accuracy across all eight tokenizer configurations tested
 (Table~\ref{tab:tokenizer-ablation}), colored by vocabulary-construction
 family. Vocabulary size (BPE 500 vs.\ 2000 vs.\ 4000) moves accuracy more
-than the choice of merge algorithm at fixed size (BPE~2000 vs.\ Unigram
-2000).}
+than the choice of merge algorithm at fixed size (BPE~2000 vs.\ WordPiece
+2000 vs.\ Unigram 2000, which rank in exactly that order); Unigram's own
+accuracy is comparatively flat across the same 500-to-2000 vocabulary
+range (89.02\% vs.\ 89.34\%) where BPE swings by over three points, an
+asymmetry discussed below.}
 \label{fig:tokenizer-sweep}
 \end{figure}
 
@@ -858,6 +893,46 @@ vocabulary at a fixed algorithm each move word accuracy by 1.6--3.3
 points independently, so BPE's original deficit against grapheme
 tokenization reflects a combination of both factors rather than either one
 alone.
+
+\textbf{A third merge algorithm, same fixed vocabulary.} WordPiece
+(BERT's algorithm) sits on the same vocab-2{,}000 axis as the BPE/Unigram
+comparison above, changing only the merge-scoring criterion: BPE picks
+each merge by raw pair frequency, Unigram prunes a large seed vocabulary
+by language-model likelihood, and WordPiece picks each merge by the
+likelihood \emph{improvement} a pair contributes ($\mathrm{freq(pair)} /
+(\mathrm{freq(a)} \cdot \mathrm{freq(b)})$) -- a greedy procedure like
+BPE's, but scored by something closer to Unigram's probabilistic
+criterion. Trained and evaluated under the identical protocol, WordPiece
+reaches 88.81\% word accuracy (4.10\% CER, 11.19\% WER) -- landing
+between BPE (87.77\%) and Unigram (89.34\%) at the same vocabulary size,
+in exactly the order its algorithm's position between the two would
+predict. This is a single data point, not a swept curve, but the clean
+ordering (BPE $<$ WordPiece $<$ Unigram, tracking how much of a
+language-model criterion each algorithm's merge step actually uses) is
+consistent with the vocabulary-economy account of grapheme's advantage
+discussed below: the more a subword algorithm's merge criterion
+resembles a stability-seeking probabilistic objective rather than raw
+frequency, the closer it gets to grapheme's fixed, collision-free
+vocabulary -- without fully reaching it.
+
+\textbf{Unigram's vocabulary-size sensitivity, filled in at 500.} Running
+Unigram at vocab 500 under the same protocol -- completing the
+$2\times2$ algorithm-by-vocabulary-size grid for the one BPE vocabulary
+size it had been missing -- gives 89.02\% word accuracy (3.76\% CER,
+10.98\% WER), a hair \emph{below} Unigram's own vocab-2000 result
+(89.34\%, 3.99\% CER) rather than above it. This is the opposite pattern
+from BPE, where shrinking the vocabulary from 2{,}000 to 500 was worth
+3.25 points (87.77\% $\rightarrow$ 91.02\%): Unigram's accuracy is
+essentially flat across the same range (89.34\% $\rightarrow$ 89.02\%, a
+0.32-point difference well within what a single training run's noise
+could produce). Unigram's language-model-based tokenization already
+tends toward a more stable, lower-collision vocabulary than BPE's greedy
+pairwise merges even at a larger nominal size, which is consistent with
+shrinking the vocabulary buying BPE most of the way to Unigram's
+stability while leaving Unigram itself with little left to gain from the
+same shrink -- though with one run per configuration this reads as a
+plausible reading of the pattern, not a claim the two algorithms respond
+differently to vocabulary size with statistical confidence.
 
 \openq{Table~\ref{tab:tokenizer-ablation} does not yet disentangle two
 candidate mechanisms for grapheme tokenization's remaining edge over even

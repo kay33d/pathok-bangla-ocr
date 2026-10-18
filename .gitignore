@@ -9,3 +9,18 @@ runs/
 *.pth
 *.ckpt
 .DS_Store
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.out
+*.abs
+*.bbl
+*.blg
+*.toc
+
+# Checkpoint staging (distributed via Kaggle datasets, not git)
+unlearning/probe_ckpts/
