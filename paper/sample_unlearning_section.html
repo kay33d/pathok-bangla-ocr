@@ -1,0 +1,253 @@
+<title>Cross-Architecture Unlearning Section</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@500;600&display=swap">
+<style>
+:root{
+  --bg:#faf8f3; --paper:#fffefb; --ink:#1e1c17; --ink-soft:#4d493f; --ink-mute:#8a8471;
+  --line:#dcd6c6; --line-soft:#eae5d8;
+  --accent:#2f5aa8; --accent-soft:#e7edf7;
+  --flag:#9b5a12; --flag-soft:#f7ecd9;
+  --bad:#a3312a;
+  --serif:'Newsreader', 'Iowan Old Style', Georgia, serif;
+  --sans:'Inter', ui-sans-serif, system-ui, sans-serif;
+  --mono:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#171511; --paper:#1c1a15; --ink:#ece7d9; --ink-soft:#c2bca8; --ink-mute:#8f886f;
+    --line:#3a3626; --line-soft:#2a2720;
+    --accent:#8fb0e6; --accent-soft:#25334d;
+    --flag:#e0a75e; --flag-soft:#3d2f16;
+    --bad:#e08b84;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#171511; --paper:#1c1a15; --ink:#ece7d9; --ink-soft:#c2bca8; --ink-mute:#8f886f;
+  --line:#3a3626; --line-soft:#2a2720;
+  --accent:#8fb0e6; --accent-soft:#25334d;
+  --flag:#e0a75e; --flag-soft:#3d2f16;
+  --bad:#e08b84;
+}
+
+*{box-sizing:border-box;}
+body{
+  background:var(--bg); color:var(--ink); font-family:var(--serif);
+  margin:0; padding:0;
+}
+.page{
+  max-width:760px; margin:0 auto; padding:64px 28px 100px;
+  background:var(--paper);
+}
+.masthead{
+  display:flex; justify-content:space-between; align-items:baseline; gap:16px;
+  font-family:var(--sans); font-size:11.5px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--ink-mute); border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:36px;
+}
+.masthead b{ color:var(--ink-soft); font-weight:600; }
+
+.kicker{ font-family:var(--sans); font-size:12.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); font-weight:600; margin-bottom:10px; }
+h1{
+  font-size:clamp(24px,3.6vw,30px); font-weight:600; line-height:1.28;
+  margin:0 0 10px; text-wrap:balance;
+}
+.dek{ color:var(--ink-soft); font-size:15.5px; font-style:italic; margin:0 0 44px; max-width:64ch; }
+
+h2{
+  font-size:19px; font-weight:600; margin:46px 0 4px; letter-spacing:-.005em;
+}
+h2 .num{ color:var(--accent); font-variant-numeric:tabular-nums; margin-right:9px; font-family:var(--mono); font-size:16px; }
+h3{
+  font-size:14.5px; font-weight:600; font-style:italic; margin:26px 0 10px;
+  color:var(--ink);
+}
+
+p{ font-size:16px; line-height:1.68; color:var(--ink); margin:0 0 17px; max-width:66ch; }
+p.lead-in{ margin-top:2px; }
+em{ font-style:italic; }
+b{ font-weight:600; }
+.small-cap{ font-variant:small-caps; }
+
+.callout{
+  border-left:2.5px solid var(--flag); background:var(--flag-soft);
+  padding:12px 16px; border-radius:0 6px 6px 0; margin:20px 0 22px;
+  font-family:var(--sans); font-size:13.5px; color:var(--ink-soft); line-height:1.55;
+}
+.callout b{ color:var(--ink); }
+
+.tbl-caption{
+  font-family:var(--sans); font-size:13px; color:var(--ink-soft); line-height:1.55;
+  margin:34px 0 12px; max-width:70ch;
+}
+.tbl-caption b{ color:var(--ink); font-weight:600; }
+
+.table-wrap{ overflow-x:auto; margin:0 0 10px; }
+table{ border-collapse:collapse; width:100%; min-width:700px; font-family:var(--sans); }
+table caption{ caption-side:top; }
+
+thead tr.grp th{
+  font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase;
+  padding:0 10px 7px; text-align:center; color:var(--ink-mute); border-bottom:1px solid var(--line-soft);
+}
+thead tr.grp th.arch-vit{ color:var(--accent); }
+thead tr.grp th.arch-cnx{ color:var(--flag); }
+thead tr.hdr th{
+  font-size:11.5px; font-weight:600; letter-spacing:.02em; text-transform:none;
+  color:var(--ink-soft); padding:6px 10px 10px; text-align:right; border-bottom:1.5px solid var(--ink);
+  white-space:nowrap;
+}
+thead tr.hdr th:first-child{ text-align:left; }
+th.sep, td.sep{ border-left:1px solid var(--line); }
+
+tbody td{
+  text-align:right; padding:9px 10px; font-family:var(--mono); font-size:13px;
+  font-variant-numeric:tabular-nums; border-bottom:1px solid var(--line-soft); white-space:nowrap;
+}
+tbody td:first-child{ text-align:left; font-family:var(--serif); font-size:14.5px; white-space:normal; }
+tbody tr:last-child td{ border-bottom:1px solid var(--ink); }
+tbody tr.baseline td{ font-weight:600; }
+tbody tr.baseline td:first-child{ font-style:italic; }
+tbody tr.fail td:first-child{ color:var(--bad); }
+tbody tr.fail td:first-child::after{ content:" \0002A"; }
+.na{ color:var(--ink-mute); font-style:italic; }
+td.delta{ font-weight:600; color:var(--bad); }
+td.delta.flat{ color:var(--ink-mute); font-weight:400; }
+
+.tbl-note{ font-family:var(--sans); font-size:12px; color:var(--ink-mute); margin:10px 0 0; line-height:1.5; }
+
+blockquote{
+  margin:24px 0; padding:2px 0 2px 20px; border-left:2px solid var(--line);
+  font-size:15px; color:var(--ink-soft); font-style:italic;
+}
+
+hr.frag{ border:none; text-align:center; margin:40px 0; color:var(--ink-mute); }
+hr.frag::before{ content:"\2042"; font-size:16px; letter-spacing:.4em; }
+
+footer.page-footer{
+  margin-top:60px; padding-top:16px; border-top:1px solid var(--line);
+  font-family:var(--mono); font-size:11.5px; color:var(--ink-mute); line-height:1.7;
+}
+
+@media print{
+  body{ background:#fff; }
+  .page{ max-width:none; padding:0; box-shadow:none; }
+  .masthead{ display:none; }
+  a{ color:inherit; text-decoration:none; }
+  @page{ margin:26mm 20mm; }
+}
+</style>
+
+<div class="page">
+  <div class="masthead">
+    <span>PATHOK &middot; draft manuscript text</span>
+    <span><b>sample section</b> &mdash; for review, not final numbering</span>
+  </div>
+
+  <div class="kicker">Section 4.8</div>
+  <h1>Cross-Architecture Replication of the Unlearning Battery: ConvNeXt vs. ViT</h1>
+  <p class="dek">A corrected ConvNeXt-Base baseline and a full ten-arm unlearning replication supersede Section&nbsp;4.7's architectural-dissociation claim with a measured one: ConvNeXt encodes writer identity as strongly as ViT does, but resists having it removed.</p>
+
+  <h2><span class="num">4.8.1</span>Experimental Setup</h2>
+
+  <p class="lead-in">Section&nbsp;4.7 reported that ConvNeXt-Base's writer-identification accuracy remained near chance under the joint-training recipe used for the ViT-Base (TrOCR) encoder, and read this as evidence of genuine architectural dissociation: that convolutional inductive biases fail to encode writer-specific stylistic features the way self-attention over patch tokens does. A follow-up diagnostic falsifies that interpretation. A fresh linear probe, trained directly on ConvNeXt's frozen, mean-pooled patch embeddings rather than on its jointly-trained writer head, recovers 77&ndash;87% writer accuracy across the forget, retain-control, and test-reference splits &mdash; far above the chance floor and close to ViT's own probe accuracy. The near-chance result in Section&nbsp;4.7 traces to an implementation detail, not a representational one: the writer head read out a learned CLS-token parameter that was never wired into the convolutional feature path, so it saw no writer-discriminative signal regardless of how strongly the underlying representation carried one.</p>
+
+  <p>We repaired the architecture &mdash; replacing the inert learned CLS token with a mean-pooled summary of the patch grid, computed fresh on every forward pass, so the writer head reads the representation the encoder actually produces &mdash; and retrained the joint recognition/writer-identification baseline from scratch under an otherwise unchanged recipe (writer-loss weight &lambda;<sub>w</sub>&nbsp;=&nbsp;2.0, single AdamW parameter group, matching schedule). The corrected checkpoint reaches <b>98.07% / 99.00%</b> forget/retain writer accuracy and <b>1.00% / 0.82%</b> forget/retain CER: writer-identification performance now comparable to ViT's, with recognition quality intact.</p>
+
+  <p>With a functioning baseline in hand, we replicated the full ten-arm sweep of Table&nbsp;1 &mdash; Stage-I pruning followed by WIC, Random Labeling, Fisher Forgetting, Amnesiac Unlearning, and DELETE (Kang et al., 2026), then ARF and MGDA-weighted WIC/Random Labeling (Wang et al., 2026) &mdash; against the corrected ConvNeXt checkpoint, using the identical forget/retain/test writer split (20 / 74 / 30 writers), the identical evaluation protocol (greedy decoding, num_beams=1, throughout), and the identical audit instruments. The only architecture-specific change was Stage-I's pruning-target selection: ConvNeXt-Base has no uniform transformer stack to split evenly into shallow/middle/deep thirds, so its four native stages (block depths 3/3/27/3) were grouped as shallow (stages&nbsp;1&ndash;2), middle (stage&nbsp;3), and deep (stage&nbsp;4) &mdash; an uneven split matching ConvNeXt's own uneven depth distribution rather than forcing ViT's even one.</p>
+
+  <div class="callout"><b>Scope note.</b> This is a drafting sample for the Section&nbsp;4.8 slot &mdash; table and figure numbers, exact prose, and citation placement should be reconciled against the surrounding manuscript (in particular the footnoted 74-vs-75 retain-writer ambiguity already flagged elsewhere in the draft) before submission.</div>
+
+  <h2><span class="num">4.8.2</span>Results</h2>
+
+  <p class="lead-in">Table&nbsp;2 reports both encoders side by side under identical procedure. Two results hold across both architectures. First, every method's <em>qualitative</em> behavior replicates: Fisher Forgetting destroys the retain set on both encoders (0.8% ViT / 0.0% ConvNeXt retain accuracy, CER diverging on both) rather than selectively forgetting, reproducing the failure mode reported by the method's introducing work; MGDA-weighted objectives fail to outperform their fixed-weight counterparts on either encoder, and do markedly worse on ConvNeXt; and ARF's representation-level attack does not clearly beat output-level WIC on either backbone.</p>
+
+  <p>Second &mdash; and invisible to a single-architecture table &mdash; <b>ConvNeXt is measurably harder to forget from.</b> Every one of the nine non-baseline arms leaves more residual forget-writer signal on ConvNeXt than the identical procedure leaves on ViT, by <b>11.0 percentage points on average</b> (minimum +1.1, Random Labeling; maximum +24.5, DELETE), despite near-identical baseline writer accuracy on both encoders (100% ViT vs. 98.07% ConvNeXt). The gap is not explained by ConvNeXt starting from a weaker signal: it starts from essentially the same place and simply gives up less of it.</p>
+
+  <p class="tbl-caption"><b>Table&nbsp;2.</b> Output-level and representation-level unlearning results, all ten arms, ViT-Base vs. ConvNeXt-Base, identical writer-disjoint split and greedy-decoding protocol. wAcc = closed-set writer-identification accuracy against the writer head as trained. &Delta; is ConvNeXt&thinsp;&minus;&thinsp;ViT on forget-writer accuracy; positive values mean ConvNeXt retained more forget-writer signal after the same procedure. Fisher Forgetting's row (marked *) reflects a destroyed model, not selective forgetting.</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr class="grp">
+        <th></th>
+        <th class="sep arch-vit" colspan="4">ViT-Base (TrOCR)</th>
+        <th class="sep arch-cnx" colspan="4">ConvNeXt-Base</th>
+        <th class="sep"></th>
+      </tr>
+      <tr class="hdr">
+        <th>Arm</th>
+        <th class="sep">wAcc F</th><th>wAcc R</th><th>CER F</th><th>CER test</th>
+        <th class="sep">wAcc F</th><th>wAcc R</th><th>CER F</th><th>CER test</th>
+        <th class="sep">&Delta; wAcc F</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="baseline">
+        <td>Baseline</td>
+        <td class="sep">100%</td><td>100%</td><td>0.09%</td><td>6.8%</td>
+        <td class="sep">98.07%</td><td>99.00%</td><td>0.79%</td><td>12.30%</td>
+        <td class="sep delta flat">&minus;1.9</td>
+      </tr>
+      <tr>
+        <td>Pruning only</td>
+        <td class="sep">0%</td><td>12.3%</td><td>78.4%</td><td>82.9%</td>
+        <td class="sep">13.13%</td><td>27.07%</td><td>30.46%</td><td>39.45%</td>
+        <td class="sep delta">+13.1</td>
+      </tr>
+      <tr>
+        <td>WIC</td>
+        <td class="sep">10.2%</td><td>95.4%</td><td>1.39%</td><td>11.2%</td>
+        <td class="sep">16.47%</td><td>93.40%</td><td>3.23%</td><td>17.56%</td>
+        <td class="sep delta">+6.3</td>
+      </tr>
+      <tr>
+        <td>Random Labeling</td>
+        <td class="sep">0.3%</td><td>94.9%</td><td>1.23%</td><td>11.1%</td>
+        <td class="sep">1.40%</td><td>92.33%</td><td>3.28%</td><td>16.94%</td>
+        <td class="sep delta">+1.1</td>
+      </tr>
+      <tr class="fail">
+        <td>Fisher Forgetting</td>
+        <td class="sep">0%</td><td>0.8%</td><td>182.8%</td><td>191.3%</td>
+        <td class="sep">2.20%</td><td>0.00%</td><td class="na">NaN</td><td class="na">NaN</td>
+        <td class="sep delta flat">n/a</td>
+      </tr>
+      <tr>
+        <td>Amnesiac Unlearning</td>
+        <td class="sep">54.3%</td><td>95.7%</td><td>3.56%</td><td>10.8%</td>
+        <td class="sep">63.53%</td><td>96.13%</td><td>5.94%</td><td>18.39%</td>
+        <td class="sep delta">+9.2</td>
+      </tr>
+      <tr>
+        <td>DELETE</td>
+        <td class="sep">41.3%</td><td>94.9%</td><td>5.28%</td><td>13.7%</td>
+        <td class="sep">65.80%</td><td>95.27%</td><td>6.03%</td><td>18.62%</td>
+        <td class="sep delta">+24.5</td>
+      </tr>
+      <tr>
+        <td>ARF <span style="color:var(--ink-mute)">(this work)</span></td>
+        <td class="sep">14.4%</td><td>95.3%</td><td>0.87%</td><td>11.0%</td>
+        <td class="sep">18.53%</td><td>92.87%</td><td>2.38%</td><td>16.13%</td>
+        <td class="sep delta">+4.1</td>
+      </tr>
+      <tr>
+        <td>WIC + MGDA <span style="color:var(--ink-mute)">(this work)</span></td>
+        <td class="sep">8.5%</td><td>83.0%</td><td>1.43%</td><td>12.0%</td>
+        <td class="sep">29.47%</td><td>81.47%</td><td>4.94%</td><td>18.73%</td>
+        <td class="sep delta">+21.0</td>
+      </tr>
+      <tr>
+        <td>Random Labeling + MGDA <span style="color:var(--ink-mute)">(this work)</span></td>
+        <td class="sep">4.5%</td><td>95.5%</td><td>2.84%</td><td>11.6%</td>
+        <td class="sep">22.00%</td><td>94.93%</td><td>5.74%</td><td>18.99%</td>
+        <td class="sep delta">+17.5</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="tbl-note">wAcc F / wAcc R: writer-identification accuracy on forget / retain writers. CER F / CER test: character error rate on the forget set / held-out test set. All figures greedy-decoded (num_beams=1); ConvNeXt's higher baseline test CER (12.30% vs. 6.8%) reflects the two checkpoints' overall recognition quality and should not be read as an unlearning effect.</p>
+
+  <p>We read this as the corrected, positive counterpart to Section&nbsp;4.7's retracted claim. ConvNeXt-Base does not fail to encode writer identity; it encodes it about as strongly as ViT-Base does, and is consistently more resistant to having that identity removed by every unlearning procedure tested here. This is a genuine architectural effect &mdash; but one about the <em>difficulty of forgetting</em>, not about representational capacity, and it strengthens rather than undermines this paper's central audit finding: output-level unlearning leaves recoverable writer identity behind, and that conclusion now holds across two structurally unrelated encoders.</p>
+
+  <footer class="page-footer">
+    ViT-Base figures: Table&nbsp;1 (Section&nbsp;4.6), main.tex &middot; ConvNeXt-Base figures: kaidul007/pathok-convnext-unlearn-5methods (v2), kaidul007/pathok-convnext-arf-mgda (v4) &middot; corrected checkpoint: mean-pool encoder, &lambda;<sub>w</sub>=2.0, no CLS-LR multiplier
+  </footer>
+</div>

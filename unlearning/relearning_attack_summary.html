@@ -1,0 +1,292 @@
+<title>Relearning Attack Audit</title>
+<style>
+:root{
+  --bg:#faf9f6; --surface:#ffffff; --surface-2:#f2f0ea;
+  --ink:#1c1b19; --ink-soft:#5c584f; --ink-mute:#8b877c;
+  --line:#e4e0d6;
+  --blue:#2f5fa8; --blue-soft:#e4ecf7;
+  --amber:#b9660a; --amber-soft:#faecda;
+  --bad:#a3312a; --bad-soft:#f8e6e4;
+  --good:#3d7a4f; --good-soft:#e5f1e7;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15140f; --surface:#1d1c17; --surface-2:#26241d;
+    --ink:#efece3; --ink-soft:#b8b3a5; --ink-mute:#847f70;
+    --line:#38352a;
+    --blue:#7fa8e0; --blue-soft:#233650;
+    --amber:#e0a75e; --amber-soft:#4a3419;
+    --bad:#e08b84; --bad-soft:#4a2624;
+    --good:#8fc9a0; --good-soft:#1f3626;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15140f; --surface:#1d1c17; --surface-2:#26241d;
+  --ink:#efece3; --ink-soft:#b8b3a5; --ink-mute:#847f70;
+  --line:#38352a;
+  --blue:#7fa8e0; --blue-soft:#233650;
+  --amber:#e0a75e; --amber-soft:#4a3419;
+  --bad:#e08b84; --bad-soft:#4a2624;
+  --good:#8fc9a0; --good-soft:#1f3626;
+}
+
+*{box-sizing:border-box;}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:'Source Serif 4', Georgia, serif;
+  max-width:980px; margin:0 auto; padding:56px 24px 80px;
+  line-height:1.5;
+}
+.eyebrow{
+  font-family:'IBM Plex Mono', var(--mono);
+  font-size:12px; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--ink-mute); margin-bottom:10px;
+}
+h1{
+  font-size:clamp(28px,4vw,38px); margin:0 0 8px; text-wrap:balance;
+  font-weight:600; letter-spacing:-0.01em;
+}
+.sub{ color:var(--ink-soft); font-size:16px; max-width:72ch; margin:0 0 36px; }
+.sub b{ color:var(--ink); font-weight:600; }
+
+.stat-row{
+  display:grid; grid-template-columns:repeat(3,1fr); gap:1px;
+  background:var(--line); border:1px solid var(--line); border-radius:10px;
+  overflow:hidden; margin-bottom:44px;
+}
+.stat{ background:var(--surface); padding:18px 20px; }
+.stat .n{
+  font-family:var(--mono); font-size:25px; font-weight:600;
+  font-variant-numeric:tabular-nums; display:block;
+}
+.stat .l{ font-size:12.5px; color:var(--ink-mute); margin-top:4px; }
+
+h2{
+  font-size:20px; font-weight:600; margin:52px 0 6px; letter-spacing:-0.005em;
+}
+h2 .tag{
+  font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.08em;
+  color:var(--ink-mute); font-weight:600; display:block; margin-bottom:6px;
+}
+p.lede{ color:var(--ink-soft); font-size:15px; max-width:74ch; margin:0 0 22px; }
+p.lede b{ color:var(--ink); font-weight:600; }
+
+.legend{ display:flex; gap:20px; font-size:12.5px; color:var(--ink-soft); margin:0 0 14px; font-family:var(--mono); flex-wrap:wrap; }
+.legend span{ display:inline-flex; align-items:center; gap:6px; }
+.sw{ width:10px; height:10px; border-radius:2px; display:inline-block; }
+
+.table-wrap{ overflow-x:auto; border:1px solid var(--line); border-radius:10px; margin-bottom:8px; }
+table{ border-collapse:collapse; width:100%; min-width:640px; font-size:14px; }
+thead th{
+  text-align:right; font-family:var(--mono); font-weight:600; font-size:11px;
+  text-transform:uppercase; letter-spacing:.04em; color:var(--ink-mute);
+  padding:10px 12px; background:var(--surface-2); border-bottom:1px solid var(--line);
+  white-space:nowrap;
+}
+thead th:first-child{ text-align:left; }
+tbody td{
+  text-align:right; padding:10px 12px; font-family:var(--mono);
+  font-variant-numeric:tabular-nums; border-bottom:1px solid var(--line);
+  background:var(--surface); white-space:nowrap;
+}
+tbody td:first-child{ text-align:left; font-family:'Source Serif 4', Georgia, serif; font-size:14.5px; }
+tbody tr:last-child td{ border-bottom:none; }
+tbody tr.baseline td{ background:var(--surface-2); font-weight:600; }
+tbody tr.fail-row td{ background:var(--bad-soft); }
+tbody tr.oracle-row td{ background:var(--amber-soft); }
+.na{ color:var(--ink-mute); font-style:italic; }
+.pass-pill, .fail-pill{
+  font-family:var(--mono); font-size:11px; font-weight:600; padding:3px 9px;
+  border-radius:99px; display:inline-block; letter-spacing:.02em;
+}
+.pass-pill{ background:var(--good-soft); color:var(--good); }
+.fail-pill{ background:var(--bad-soft); color:var(--bad); }
+td.delta-pos{ color:var(--good); font-weight:600; }
+td.delta-neg{ color:var(--ink-soft); }
+
+.note{
+  background:var(--surface); border:1px solid var(--line); border-radius:10px;
+  padding:16px 18px; font-size:14px; color:var(--ink-soft); margin-top:14px;
+}
+.note b{ color:var(--ink); }
+.note.warn{ border-left:3px solid var(--amber); }
+.note.warn b{ color:var(--amber); }
+.note + .note{ margin-top:10px; }
+
+/* step-curve chart */
+.chart-box{
+  border:1px solid var(--line); border-radius:10px; background:var(--surface);
+  padding:18px 20px 10px; margin-bottom:8px;
+}
+svg{ display:block; width:100%; height:auto; overflow:visible; }
+.axis-label{ font-family:var(--mono); font-size:10.5px; fill:var(--ink-mute); }
+.gridline{ stroke:var(--line); stroke-width:1; }
+.curve{ fill:none; stroke-width:2; }
+.curve-dot{ r:2.6; }
+.end-label{ font-family:var(--mono); font-size:11px; font-weight:600; }
+
+/* paired bar chart, task B */
+.bar-chart{ margin-top:4px; }
+.method-group{ padding:11px 0; border-bottom:1px solid var(--line); }
+.method-group:last-child{ border-bottom:none; }
+.method-group .mname{ display:flex; justify-content:space-between; align-items:baseline; font-size:13.5px; color:var(--ink); margin-bottom:7px; font-weight:600; }
+.method-group .mname .gap{ font-family:var(--mono); font-size:11.5px; font-weight:600; }
+.gap.pos{ color:var(--ink-mute); }
+.gap.neg{ color:var(--amber); }
+.bar-row{ display:grid; grid-template-columns:78px 1fr 56px; align-items:center; gap:10px; padding:2.5px 0; }
+.bar-row .lbl{ font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-mute); text-align:right; }
+.bar-track{ position:relative; height:14px; background:var(--surface-2); border-radius:3px; overflow:hidden; }
+.bar-fill{ position:absolute; top:0; bottom:0; left:0; border-radius:3px; }
+.bar-fill.forget{ background:var(--blue); }
+.bar-fill.unseen{ background:var(--amber); }
+.bar-row .val{ font-family:var(--mono); font-size:12px; font-variant-numeric:tabular-nums; color:var(--ink-soft); }
+
+footer{ margin-top:56px; font-size:12px; color:var(--ink-mute); font-family:var(--mono); border-top:1px solid var(--line); padding-top:16px; line-height:1.7; }
+</style>
+
+<div class="eyebrow">PATHOK &middot; Machine Unlearning &middot; Relearning-Attack Audit</div>
+<h1>Does Forgetting Survive an Attacker With Five Words?</h1>
+<p class="sub">The five-shot relearning attack, extended from 3 arms to all <b>7 non-degenerate unlearning methods</b>, plus a new control: the same attack run against <b>20 writers the model never saw at any training stage</b>. If forget-writers recover no faster than genuinely unseen ones, unlearning worked. They don't.</p>
+
+<div class="stat-row">
+  <div class="stat"><span class="n">7 / 7</span><span class="l">non-degenerate arms tested end to end</span></div>
+  <div class="stat"><span class="n">+15 to +23</span><span class="l">pt gap: forget-writers relearn faster than unseen writers, every arm</span></div>
+  <div class="stat"><span class="n">2 / 4</span><span class="l">arms pass the strict retain-stability + forget-recovery gate</span></div>
+</div>
+
+<h2><span class="tag">Task A</span>Retain-Stability Gate</h2>
+<p class="lede">Five-shot, 150-step attack on the four arms not yet covered by the earlier ARF / WIC+MGDA / RL+MGDA audit. Gate: passes only if retain accuracy holds (drop &le; 2.0&nbsp;pts) <b>and</b> forget accuracy recovers substantially (&Delta; &ge; 50.0&nbsp;pts) &mdash; an absolute threshold, not a ratio.</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr>
+  <th>Arm</th><th>Retain before</th><th>Retain after</th><th>&Delta; retain</th>
+  <th>Forget before</th><th>Forget after</th><th>&Delta; forget</th><th>Gate</th>
+</tr></thead>
+<tbody>
+  <tr><td>WIC</td><td>96.0</td><td>94.0</td><td>&minus;2.0</td><td>8.5</td><td>90.1</td><td class="delta-pos">+81.6</td><td><span class="pass-pill">PASS</span></td></tr>
+  <tr><td>Random Labeling</td><td>94.8</td><td>94.8</td><td>0.0</td><td>0.2</td><td>89.1</td><td class="delta-pos">+88.9</td><td><span class="pass-pill">PASS</span></td></tr>
+  <tr class="fail-row"><td>Amnesiac</td><td>95.0</td><td>95.8</td><td>+0.8</td><td>55.1</td><td>88.4</td><td class="delta-neg">+33.3</td><td><span class="fail-pill">FAIL</span></td></tr>
+  <tr class="fail-row"><td>DELETE</td><td>95.8</td><td>94.8</td><td>&minus;1.0</td><td>42.6</td><td>86.9</td><td class="delta-neg">+44.2</td><td><span class="fail-pill">FAIL</span></td></tr>
+</tbody>
+</table>
+</div>
+<div class="note warn"><b>Read the two FAILs carefully.</b> Retain accuracy is rock-stable on all four arms &mdash; neither FAIL is a retain collapse. Amnesiac and DELETE fail because they already left substantial forget-signal in place <em>before</em> the attack even started (55.1% and 42.6%, matching their elevated wAcc-forget in the main comparison table), so there's simply less headroom left to climb past the fixed +50-point bar. Their final forget-accuracy (88.4%, 86.9%) lands in the same range as WIC's and Random Labeling's &mdash; this is "already leaky," not "attack-resistant."</div>
+
+<h2 style="margin-top:36px;">Step-Wise Recovery Curves<span class="tag" style="display:inline;margin-left:10px;">five-shot, 150 steps</span></h2>
+<div class="legend">
+  <span><span class="sw" style="background:var(--blue)"></span>WIC</span>
+  <span><span class="sw" style="background:var(--amber)"></span>Random Labeling</span>
+  <span><span class="sw" style="background:var(--bad)"></span>Amnesiac</span>
+  <span><span class="sw" style="background:var(--good)"></span>DELETE</span>
+</div>
+<div class="chart-box"><svg id="curveChart" viewBox="0 0 900 320" preserveAspectRatio="xMidYMid meet"></svg></div>
+
+<h2 style="margin-top:56px;"><span class="tag">Task B</span>Unseen-Writer Control</h2>
+<p class="lede">Same five-shot, 150-step attack, run again against support words drawn from <b>20 writers the model never encountered at any training stage</b> (sampled from the 31-writer test split). If a method truly deleted writer identity, its forget-writer curve should relearn no faster than this control. All ten arms shown; forget accuracy and unseen-control accuracy are the model's own restricted-head readout after 150 steps.</p>
+
+<div class="legend">
+  <span><span class="sw" style="background:var(--blue)"></span>forget writers</span>
+  <span><span class="sw" style="background:var(--amber)"></span>unseen-control writers</span>
+</div>
+<div class="bar-chart" id="barChart"></div>
+
+<div class="note"><b>Oracle is the one genuine surprise.</b> Its gap is strongly <em>negative</em> (&minus;43.7): a model retrained from scratch without the forget writers relearns them <em>slower</em> than it relearns genuinely unseen writers &mdash; despite having equally never seen either group. Retain accuracy stayed pinned at 100% throughout, so this isn't a validity failure. It suggests the 20 forget-writer identities are intrinsically harder to separate from each other (or from retain writers) than a random sample of unseen test writers is &mdash; a property of the writer split, not evidence the oracle leaks information. Read oracle's negative gap as the opposite of every other row, not as noise to discard.</div>
+<div class="note warn"><b>Fisher Forgetting is degenerate here too.</b> Both forget (0.0%) and unseen-control (4.6%) sit at chance &mdash; the shock step already destroyed the writer head entirely, so there's nothing left for a 5-shot attack to relearn. Its small negative gap is a floor effect, not a finding.</div>
+
+<h2 style="margin-top:56px;">Reading Both Results Together</h2>
+<div class="note"><b>Task A and Task B measure different things and agree.</b> Task A asks "does retain accuracy survive a relearning attack" (yes, for all four arms). Task B asks "is what recovers actually forget-specific information, or just five-shot writer-ID being an easy task in general" &mdash; and the answer is forget-specific: every non-degenerate arm's forget-writers relearn 15&ndash;23 points faster than writers the model genuinely never saw. Combined, these are the same conclusion the frozen-encoder probe already reached, now from a completely independent instrument: output-level unlearning suppresses the writer head's willingness to answer, not the underlying information.</div>
+
+<footer>
+  Task A source: kayed007/pathok-exp3c-unseen-batch1 &amp; batch2 (exp3c_relearn_unseen_control.py) &middot;
+  Task B source: same kernels, unseen-writer control branch &middot;
+  Baseline checkpoint: kaidul007/pathok-writer-probe-ckpts (mirrored to kayed007 after kaidul007's weekly GPU quota was exhausted) &middot;
+  Five-shot attack: 150 steps, retain-replay interleaved every step, greedy decoding throughout
+</footer>
+
+<script>
+(function(){
+  // ---- step-wise curve chart (Task A) ----
+  var steps = [0,2,5,10,15,20,30,45,60,90,120,150];
+  var series = [
+    {name:"WIC", color:"var(--blue)", data:[8.5,8.5,16.2,32.4,51.1,64.5,85.1,89.5,86.1,88.2,89.7,90.1]},
+    {name:"Random Labeling", color:"var(--amber)", data:[0.2,0.2,3.1,18.9,41.6,60.0,84.9,91.5,88.6,90.9,89.7,89.1]},
+    {name:"Amnesiac", color:"var(--bad)", data:[55.1,60.9,69.5,79.6,83.1,85.9,88.6,90.9,87.5,89.4,90.8,88.4]},
+    {name:"DELETE", color:"var(--good)", data:[42.6,45.5,56.2,71.4,82.9,86.9,86.4,88.4,83.9,88.2,87.0,86.9]}
+  ];
+
+  var svg = document.getElementById('curveChart');
+  var W = 900, H = 320, padL = 42, padR = 24, padT = 14, padB = 34;
+  var plotW = W - padL - padR, plotH = H - padT - padB;
+  var xMax = 150, yMax = 100;
+
+  function xPix(step){ return padL + (step / xMax) * plotW; }
+  function yPix(val){ return padT + plotH - (val / yMax) * plotH; }
+
+  var ns = "http://www.w3.org/2000/svg";
+  function el(tag, attrs){
+    var e = document.createElementNS(ns, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  // gridlines + y labels
+  [0,25,50,75,100].forEach(function(v){
+    var y = yPix(v);
+    svg.appendChild(el('line', {x1:padL, x2:W-padR, y1:y, y2:y, class:'gridline'}));
+    var t = el('text', {x:padL-8, y:y+4, class:'axis-label', 'text-anchor':'end'});
+    t.textContent = v + '%';
+    svg.appendChild(t);
+  });
+  // x labels
+  [0,30,60,90,120,150].forEach(function(v){
+    var x = xPix(v);
+    var t = el('text', {x:x, y:H-padB+18, class:'axis-label', 'text-anchor':'middle'});
+    t.textContent = v;
+    svg.appendChild(t);
+  });
+  var xt = el('text', {x:(padL+W-padR)/2, y:H-4, class:'axis-label', 'text-anchor':'middle'});
+  xt.textContent = 'relearning step';
+  svg.appendChild(xt);
+
+  series.forEach(function(s){
+    var d = s.data.map(function(v,i){ return (i===0?'M':'L') + xPix(steps[i]) + ',' + yPix(v); }).join(' ');
+    svg.appendChild(el('path', {d:d, class:'curve', stroke:s.color}));
+    s.data.forEach(function(v,i){
+      svg.appendChild(el('circle', {cx:xPix(steps[i]), cy:yPix(v), class:'curve-dot', fill:s.color}));
+    });
+  });
+
+  // ---- paired bar chart (Task B) ----
+  var rows = [
+    ["Baseline", 100.0, 78.8, 21.3],
+    ["WIC", 89.9, 74.1, 15.8],
+    ["Random Labeling", 88.8, 69.9, 18.9],
+    ["Amnesiac", 88.6, 72.0, 16.6],
+    ["DELETE", 86.9, 68.0, 18.9],
+    ["ARF", 88.9, 73.8, 15.1],
+    ["WIC + MGDA", 87.5, 64.9, 22.6],
+    ["RL + MGDA", 89.4, 70.1, 19.3],
+    ["Fisher Forgetting", 0.0, 4.6, -4.6],
+    ["Oracle (retrain-from-scratch)", 30.8, 74.5, -43.7]
+  ];
+  var el2 = document.getElementById('barChart');
+  rows.forEach(function(r){
+    var name = r[0], forget = r[1], unseen = r[2], gap = r[3];
+    var group = document.createElement('div');
+    group.className = 'method-group';
+    var gapClass = gap >= 0 ? 'pos' : 'neg';
+    var gapText = (gap >= 0 ? '+' : '') + gap.toFixed(1) + ' pt gap';
+    group.innerHTML =
+      '<div class="mname"><span>'+name+'</span><span class="gap '+gapClass+'">'+gapText+'</span></div>' +
+      '<div class="bar-row"><div class="lbl">Forget</div>' +
+        '<div class="bar-track"><div class="bar-fill forget" style="width:'+forget+'%"></div></div>' +
+        '<div class="val">'+forget.toFixed(1)+'%</div></div>' +
+      '<div class="bar-row"><div class="lbl">Unseen</div>' +
+        '<div class="bar-track"><div class="bar-fill unseen" style="width:'+unseen+'%"></div></div>' +
+        '<div class="val">'+unseen.toFixed(1)+'%</div></div>';
+    el2.appendChild(group);
+  });
+})();
+</script>

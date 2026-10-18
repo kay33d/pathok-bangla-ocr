@@ -1,0 +1,267 @@
+<title>ConvNeXt vs TrOCR Unlearning</title>
+<style>
+:root{
+  --bg:#faf9f6; --surface:#ffffff; --surface-2:#f2f0ea;
+  --ink:#1c1b19; --ink-soft:#5c584f; --ink-mute:#8b877c;
+  --line:#e4e0d6;
+  --blue:#2f5fa8; --blue-soft:#e4ecf7;
+  --amber:#b9660a; --amber-soft:#faecda;
+  --bad:#a3312a; --bad-soft:#f8e6e4;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15140f; --surface:#1d1c17; --surface-2:#26241d;
+    --ink:#efece3; --ink-soft:#b8b3a5; --ink-mute:#847f70;
+    --line:#38352a;
+    --blue:#7fa8e0; --blue-soft:#233650;
+    --amber:#e0a75e; --amber-soft:#4a3419;
+    --bad:#e08b84; --bad-soft:#4a2624;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15140f; --surface:#1d1c17; --surface-2:#26241d;
+  --ink:#efece3; --ink-soft:#b8b3a5; --ink-mute:#847f70;
+  --line:#38352a;
+  --blue:#7fa8e0; --blue-soft:#233650;
+  --amber:#e0a75e; --amber-soft:#4a3419;
+  --bad:#e08b84; --bad-soft:#4a2624;
+}
+
+*{box-sizing:border-box;}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:'Source Serif 4', Georgia, serif;
+  max-width:1040px; margin:0 auto; padding:56px 24px 80px;
+  line-height:1.5;
+}
+.eyebrow{
+  font-family:'IBM Plex Mono', var(--mono);
+  font-size:12px; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--ink-mute); margin-bottom:10px;
+}
+h1{
+  font-size:clamp(28px,4vw,38px); margin:0 0 8px; text-wrap:balance;
+  font-weight:600; letter-spacing:-0.01em;
+}
+.sub{ color:var(--ink-soft); font-size:16px; max-width:70ch; margin:0 0 36px; }
+.sub b{ color:var(--ink); font-weight:600; }
+
+.stat-row{
+  display:grid; grid-template-columns:repeat(3,1fr); gap:1px;
+  background:var(--line); border:1px solid var(--line); border-radius:10px;
+  overflow:hidden; margin-bottom:40px;
+}
+.stat{ background:var(--surface); padding:18px 20px; }
+.stat .n{
+  font-family:var(--mono); font-size:26px; font-weight:600;
+  font-variant-numeric:tabular-nums; display:block;
+}
+.stat .l{ font-size:12.5px; color:var(--ink-mute); margin-top:4px; }
+
+h2{
+  font-size:13px; text-transform:uppercase; letter-spacing:.1em;
+  font-family:'IBM Plex Mono', var(--mono); font-weight:600;
+  color:var(--ink-soft); border-bottom:1px solid var(--line);
+  padding-bottom:10px; margin:44px 0 18px;
+}
+.h2-note{ font-family:'Source Serif 4', Georgia, serif; text-transform:none; letter-spacing:0; font-weight:400; font-size:14px; color:var(--ink-mute); float:right; }
+
+.table-wrap{ overflow-x:auto; border:1px solid var(--line); border-radius:10px; }
+table{ border-collapse:collapse; width:100%; min-width:980px; font-size:13.5px; }
+thead th{
+  text-align:right; font-family:var(--mono); font-weight:600; font-size:11px;
+  text-transform:uppercase; letter-spacing:.04em; color:var(--ink-mute);
+  padding:10px 12px; background:var(--surface-2); border-bottom:1px solid var(--line);
+  white-space:nowrap;
+}
+thead tr.grp th{
+  font-size:11.5px; text-align:center; color:var(--ink);
+  padding:9px 12px; letter-spacing:.06em;
+}
+thead tr.grp th.vit{ background:var(--blue-soft); }
+thead tr.grp th.cnx{ background:var(--amber-soft); }
+thead th:first-child{ text-align:left; }
+th.divider{ border-left:2px solid var(--line); }
+td.divider{ border-left:2px solid var(--line); }
+tbody td{
+  text-align:right; padding:10px 12px; font-family:var(--mono);
+  font-variant-numeric:tabular-nums; border-bottom:1px solid var(--line);
+  background:var(--surface); white-space:nowrap;
+}
+tbody td:first-child{ text-align:left; font-family:'Source Serif 4', Georgia, serif; font-size:14px; }
+tbody tr:last-child td{ border-bottom:none; }
+tbody tr.baseline td{ background:var(--surface-2); font-weight:600; }
+tbody tr.fail td{ background:var(--bad-soft); }
+tbody tr.fail td:first-child{ color:var(--bad); font-weight:600; }
+.na{ color:var(--ink-mute); }
+td.delta{ font-weight:600; }
+td.delta.up{ color:var(--bad); }
+td.delta.flat{ color:var(--ink-mute); font-weight:400; }
+
+.legend{ display:flex; gap:20px; font-size:12.5px; color:var(--ink-soft); margin:14px 2px 0; font-family:var(--mono); flex-wrap:wrap; }
+.legend span{ display:inline-flex; align-items:center; gap:6px; }
+.sw{ width:10px; height:10px; border-radius:2px; display:inline-block; }
+
+.chart{ margin-top:10px; }
+.method-group{ padding:10px 0; border-bottom:1px solid var(--line); }
+.method-group:last-child{ border-bottom:none; }
+.method-group .mname{ display:flex; justify-content:space-between; align-items:baseline; font-size:13.5px; color:var(--ink); margin-bottom:7px; font-weight:600; }
+.method-group .mname .gap{ font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--bad); }
+.bar-row{ display:grid; grid-template-columns:78px 1fr 52px; align-items:center; gap:10px; padding:2.5px 0; }
+.bar-row .lbl{ font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-mute); text-align:right; }
+.bar-track{ position:relative; height:14px; background:var(--surface-2); border-radius:3px; overflow:hidden; }
+.bar-fill{ position:absolute; top:0; bottom:0; left:0; border-radius:3px; }
+.bar-fill.vit{ background:var(--blue); }
+.bar-fill.cnx{ background:var(--amber); }
+.bar-row .val{ font-family:var(--mono); font-size:12px; font-variant-numeric:tabular-nums; color:var(--ink-soft); }
+
+.note{
+  background:var(--surface); border:1px solid var(--line); border-radius:10px;
+  padding:18px 20px; font-size:14.5px; color:var(--ink-soft); margin-top:16px;
+}
+.note b{ color:var(--ink); }
+.note + .note{ margin-top:10px; }
+
+footer{ margin-top:56px; font-size:12.5px; color:var(--ink-mute); font-family:var(--mono); border-top:1px solid var(--line); padding-top:16px; }
+</style>
+
+<div class="eyebrow">PATHOK &middot; Machine Unlearning &middot; Cross-Architecture Replication</div>
+<h1>ConvNeXt vs. TrOCR: The Same Ten Arms</h1>
+<p class="sub">Every writer-identity unlearning method, run once on <b>TrOCR's ViT-Base encoder</b> and once on <b>ConvNeXt-Base</b> (mean-pool architecture fix applied), same forget/retain writer split, same greedy-decoding protocol. The two encoders agree on which methods work and which collapse &mdash; they disagree, consistently, on <em>how hard writer identity is to forget</em>.</p>
+
+<div class="stat-row">
+  <div class="stat"><span class="n">+11.0 pts</span><span class="l">avg. forget-accuracy gap (ConvNeXt harder), non-baseline arms</span></div>
+  <div class="stat"><span class="n">9 / 9</span><span class="l">non-baseline arms where ConvNeXt forgets less than ViT</span></div>
+  <div class="stat"><span class="n">100 vs 98%</span><span class="l">baseline writer-ID, ViT vs ConvNeXt &mdash; not dissociated</span></div>
+</div>
+
+<h2>Full Comparison Table<span class="h2-note">greedy decoding (num_beams=1), both encoders</span></h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr class="grp">
+  <th></th>
+  <th class="vit divider" colspan="5">TrOCR &middot; ViT-Base</th>
+  <th class="cnx divider" colspan="5">ConvNeXt-Base</th>
+  <th class="divider"></th>
+</tr>
+<tr>
+  <th>Arm</th>
+  <th class="divider">wAcc F</th><th>wAcc R</th><th>CER F</th><th>CER test</th><th>MIA seen</th>
+  <th class="divider">wAcc F</th><th>wAcc R</th><th>CER F</th><th>CER test</th><th>MIA seen</th>
+  <th class="divider">&Delta; wAcc F</th>
+</tr>
+</thead>
+<tbody>
+  <tr class="baseline">
+    <td>Baseline</td>
+    <td class="divider">100%</td><td>100%</td><td>0.09%</td><td>6.8%</td><td>93.6%</td>
+    <td class="divider">98.07%</td><td>99.00%</td><td>0.79%</td><td>12.30%</td><td>91.24%</td>
+    <td class="divider delta flat">&minus;1.9</td>
+  </tr>
+  <tr>
+    <td>Pruning only</td>
+    <td class="divider">0%</td><td>12.3%</td><td>78.4%</td><td>82.9%</td><td>58.6%</td>
+    <td class="divider">13.13%</td><td>27.07%</td><td>30.46%</td><td>39.45%</td><td>70.51%</td>
+    <td class="divider delta up">+13.1</td>
+  </tr>
+  <tr>
+    <td>WIC</td>
+    <td class="divider">10.2%</td><td>95.4%</td><td>1.39%</td><td>11.2%</td><td>92.3%</td>
+    <td class="divider">16.47%</td><td>93.40%</td><td>3.23%</td><td>17.56%</td><td>88.31%</td>
+    <td class="divider delta up">+6.3</td>
+  </tr>
+  <tr>
+    <td>Random Labeling</td>
+    <td class="divider">0.3%</td><td>94.9%</td><td>1.23%</td><td>11.1%</td><td>93.0%</td>
+    <td class="divider">1.40%</td><td>92.33%</td><td>3.28%</td><td>16.94%</td><td>87.13%</td>
+    <td class="divider delta up">+1.1</td>
+  </tr>
+  <tr class="fail">
+    <td>Fisher Forgetting*</td>
+    <td class="divider">0%</td><td>0.8%</td><td>182.8%</td><td>191.3%</td><td>51.7%</td>
+    <td class="divider">2.20%</td><td>0.00%</td><td class="na">NaN</td><td class="na">NaN</td><td>47.05%</td>
+    <td class="divider delta flat">n/a</td>
+  </tr>
+  <tr>
+    <td>Amnesiac</td>
+    <td class="divider">54.3%</td><td>95.7%</td><td>3.56%</td><td>10.8%</td><td>81.9%</td>
+    <td class="divider">63.53%</td><td>96.13%</td><td>5.94%</td><td>18.39%</td><td>79.66%</td>
+    <td class="divider delta up">+9.2</td>
+  </tr>
+  <tr>
+    <td>DELETE</td>
+    <td class="divider">41.3%</td><td>94.9%</td><td>5.28%</td><td>13.7%</td><td>78.2%</td>
+    <td class="divider">65.80%</td><td>95.27%</td><td>6.03%</td><td>18.62%</td><td>80.32%</td>
+    <td class="divider delta up">+24.5</td>
+  </tr>
+  <tr>
+    <td>ARF</td>
+    <td class="divider">14.4%</td><td>95.3%</td><td>0.87%</td><td>11.0%</td><td>93.3%</td>
+    <td class="divider">18.53%</td><td>92.87%</td><td>2.38%</td><td>16.13%</td><td>88.13%</td>
+    <td class="divider delta up">+4.1</td>
+  </tr>
+  <tr>
+    <td>WIC + MGDA</td>
+    <td class="divider">8.5%</td><td>83.0%</td><td>1.43%</td><td>12.0%</td><td>95.6%</td>
+    <td class="divider">29.47%</td><td>81.47%</td><td>4.94%</td><td>18.73%</td><td>88.09%</td>
+    <td class="divider delta up">+21.0</td>
+  </tr>
+  <tr>
+    <td>RL + MGDA</td>
+    <td class="divider">4.5%</td><td>95.5%</td><td>2.84%</td><td>11.6%</td><td>90.2%</td>
+    <td class="divider">22.00%</td><td>94.93%</td><td>5.74%</td><td>18.99%</td><td>80.93%</td>
+    <td class="divider delta up">+17.5</td>
+  </tr>
+</tbody>
+</table>
+</div>
+
+<h2>Forget-Writer Accuracy, Side by Side</h2>
+<div class="legend">
+  <span><span class="sw" style="background:var(--blue)"></span>TrOCR &middot; ViT-Base</span>
+  <span><span class="sw" style="background:var(--amber)"></span>ConvNeXt-Base</span>
+  <span style="color:var(--bad)">gap = ConvNeXt &minus; ViT (lower is better forgetting)</span>
+</div>
+<div class="chart" id="chart"></div>
+
+<h2>Reading the Result</h2>
+<div class="note"><b>Both encoders agree on which methods work.</b> Fisher Forgetting collapses on both (0.8% retain on ViT, 0.00% on ConvNeXt, CER blowing up on both) &mdash; the failure mode is a property of the method, not the encoder. MGDA weighting fails to beat its fixed-weight counterpart on both, too.</div>
+<div class="note"><b>But ConvNeXt is measurably harder to forget from &mdash; every single time.</b> All nine non-baseline arms show ConvNeXt retaining more forget-writer signal than ViT after the same procedure, by +11.0 points on average. The gap is largest for shock-based methods (DELETE: +24.5 pts, WIC+MGDA: +21.0 pts) and smallest for simple relabeling (Random Labeling: +1.1 pts).</div>
+<div class="note"><b>The gap isn't explained by a weaker baseline.</b> ConvNeXt's baseline writer-ID (98.07%/99.00%) is close to ViT's (100%/100%) &mdash; both near ceiling. Something about ConvNeXt's representation resists these specific unlearning procedures more than ViT's does, rather than simply having less to forget in the first place.</div>
+<div class="note"><b>This replaces the manuscript's dissociation claim with a sharper one.</b> Section&nbsp;4.7's "genuine architectural dissociation" (ConvNeXt doesn't encode writer identity) is false &mdash; it was a pooling bug. The real, now-measured finding: ConvNeXt encodes writer identity just as strongly as ViT, but is <em>more resistant to having it removed</em> by every unlearning method tested.</div>
+
+<footer>ViT numbers: Table tab:unlearn-all, main.tex &middot; ConvNeXt: kaidul007/pathok-convnext-unlearn-5methods (v2) + kaidul007/pathok-convnext-arf-mgda (v4) &middot; mean-pool encoder, WRITER_W=2.0 baseline checkpoint</footer>
+
+<script>
+(function(){
+  var rows = [
+    ["Pruning only",0,13.13],
+    ["WIC",10.2,16.47],
+    ["Random Labeling",0.3,1.40],
+    ["Fisher Forgetting*",0,2.20],
+    ["Amnesiac",54.3,63.53],
+    ["DELETE",41.3,65.80],
+    ["ARF",14.4,18.53],
+    ["WIC + MGDA",8.5,29.47],
+    ["RL + MGDA",4.5,22.00]
+  ];
+  var el = document.getElementById('chart');
+  rows.forEach(function(r){
+    var name = r[0], vit = r[1], cnx = r[2];
+    var gap = cnx - vit;
+    var group = document.createElement('div');
+    group.className = 'method-group';
+    group.innerHTML =
+      '<div class="mname"><span>'+name+'</span><span class="gap">+'+gap.toFixed(1)+' pts</span></div>' +
+      '<div class="bar-row"><div class="lbl">ViT</div>' +
+        '<div class="bar-track"><div class="bar-fill vit" style="width:'+vit+'%"></div></div>' +
+        '<div class="val">'+vit.toFixed(1)+'%</div></div>' +
+      '<div class="bar-row"><div class="lbl">ConvNeXt</div>' +
+        '<div class="bar-track"><div class="bar-fill cnx" style="width:'+cnx+'%"></div></div>' +
+        '<div class="val">'+cnx.toFixed(1)+'%</div></div>';
+    el.appendChild(group);
+  });
+})();
+</script>
