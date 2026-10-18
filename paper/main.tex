@@ -986,16 +986,42 @@ writer head has not learned to discriminate writers in the first place
 gives no meaningful signal about \emph{unlearning} resistance, since there
 is nothing to forget. We report this as a limitation rather than force a
 Stage~I/II run on an uninformative baseline (Section~\ref{sec:limitations}).
-Two explanations are equally consistent with the numbers above and this
-study does not adjudicate between them: (i) a genuine architectural
-dissociation, where ConvNeXt's locally-built-up convolutional features
-support content recognition well but do not naturally summarize into a
-single token carrying a global, holistic style signature the way a
-Transformer's attention-pooled CLS representation does; or (ii) an
-artifact of this specific adapter, whose CLS token has no pretraining
-signal and may need a longer schedule, a separate learning rate, or a
-larger \texttt{WRITER\_W} to specialize for identity alongside a
-recognition objective that converges quickly on this architecture.
+Two explanations were equally consistent with the numbers above: (i) a
+genuine architectural dissociation, where ConvNeXt's locally-built-up
+convolutional features support content recognition well but do not
+naturally summarize into a single token carrying a global, holistic style
+signature the way a Transformer's attention-pooled CLS representation
+does; or (ii) an artifact of this specific adapter, whose CLS token has no
+pretraining signal and might simply need more aggressive tuning to
+specialize for identity alongside a recognition objective that converges
+quickly on this architecture.
+
+We tested explanation (ii) directly rather than leaving it open. A second
+run gave the CLS token, its projection, and the writer head their own
+optimizer parameter group at $20\times$ the base learning rate (instead of
+sharing the same rate as the rest of an already ImageNet-pretrained
+backbone), and raised \texttt{WRITER\_W} $5\times$ (2.0 to 10.0) to force
+substantially more gradient signal into the writer objective relative to
+recognition. If explanation (ii) were correct, this should have moved
+writer accuracy measurably even if it did not close the gap entirely. It
+did not move at all: validation writer accuracy was 4.00\% at every one of
+8 epochs, unchanged to two decimal places, while recognition CER improved
+normally over the same schedule (22.2\% $\to$ 3.8\%) -- confirming the
+optimizer change was active and the two objectives were not simply both
+stalled. Final forget/retain writer accuracy (0.00\%/5.00\%) was
+statistically indistinguishable from the untuned run. A $20\times$
+learning-rate increase and $5\times$ loss-reweighting on the exact
+parameters responsible for writer identification producing zero
+measurable change is difficult to reconcile with explanation (ii): an
+under-trained token that was merely slow to specialize should show
+\emph{some} response to an intervention this aggressive. This shifts the
+weight of evidence toward explanation (i) -- a genuine architectural
+property, not an artifact of this study's specific adapter -- though a
+single dataset and a single tuning attempt cannot rule out (ii) entirely;
+Section~\ref{sec:limitations} treats this as the next-lowest-hanging
+open question, and a second dataset (not necessarily a different
+language, since the recognition side already generalizes across script
+complexity) would be the natural way to close it.
 
 %% ====================================================================
 \section{Discussion}
@@ -1084,13 +1110,18 @@ reported numbers to be incorrect on their own benchmark.}
   the writer-identification head failed to learn (5.00\% retain accuracy
   against $\sim$100\% for the TrOCR ViT arm) despite recognition CER/WER
   closely matching the ViT arm, so Stage~I/II pruning and unlearning were
-  not run against this checkpoint. This leaves the throughline's
-  architecture-family claim resting on the correlational ResNet-18
-  comparison (Table~\ref{tab:encoder-ablation}) rather than a matched-capacity
-  causal one; a follow-up would need to first resolve whether the
-  ConvNeXt writer-ID gap is a genuine representational property of the
-  architecture or an artifact of this study's CLS-token adapter before the
-  unlearning-resistance question can be tested on it.
+  not run against this checkpoint. A follow-up tuning attempt ($20\times$
+  learning rate on the fresh CLS-token/projection/writer-head parameters,
+  $5\times$ higher \texttt{WRITER\_W}) produced no measurable change
+  across 8 epochs, weakening the adapter-artifact explanation but not
+  eliminating it outright -- a single tuning attempt on a single dataset is
+  not conclusive. This leaves the throughline's architecture-family claim
+  resting on the correlational ResNet-18 comparison
+  (Table~\ref{tab:encoder-ablation}) rather than a matched-capacity causal
+  one; the most direct remaining follow-up is a second dataset (to test
+  whether the dissociation is BnHTRD-specific) rather than further
+  same-dataset tuning, which this study's negative tuning result already
+  argues against as the next step.
 \item Table~\ref{tab:gradet-compare}'s comparison against GraDeT-HTR uses
   each study's own reported numbers rather than a re-run under identical
   splits and preprocessing, and should be read as contextual rather than
