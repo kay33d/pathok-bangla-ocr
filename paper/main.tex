@@ -706,7 +706,11 @@ representation-level attack -- improves on fixed-weight output suppression.
 \label{sec:agg-results}
 
 \begin{table}[h]
-\caption{Encoder ablation, grapheme tokenization held constant.}
+\caption{Encoder ablation, grapheme tokenization held constant. The
+ConvNeXt-Base row is a later addition (Section~\ref{sec:apples-to-apples}),
+run under the identical protocol as the two rows above it; its throughput
+was not measured on the same basis as the other two and is omitted rather
+than implying a comparison that was not actually made.}
 \label{tab:encoder-ablation}
 \begin{tabular*}{\tblwidth}{@{}LLLLL@{}}
 \toprule
@@ -714,9 +718,81 @@ Encoder & Params & Word Acc.\ (\%) & CER (\%) & Throughput (samp./s) \\
 \midrule
 ResNet-18 CNN & 37.4M & 83.88 & 8.36 & $\approx$27 \\
 TrOCR ViT & $\sim$334M & \textbf{92.21} & \textbf{2.52} & $\approx$3.5 \\
+ConvNeXt-Base & $\sim$372M & 91.70 & 2.63 & -- \\
 \bottomrule
 \end{tabular*}
 \end{table}
+
+\subsection{A genuine apples-to-apples encoder comparison, and two robustness checks on the headline number}
+\label{sec:apples-to-apples}
+
+Section~\ref{sec:arf-results} reports ConvNeXt-Base's recognition
+performance too, but under the writer-disjoint split and joint
+recognition-plus-writer-identification recipe that section's investigation
+required, decoded greedily rather than with beam search -- a real but
+looser comparison (7.58\% vs.\ the ViT oracle's 7.74\% CER) across two
+protocol differences at once. The ConvNeXt-Base row added to
+Table~\ref{tab:encoder-ablation} closes that gap: same standard 80/10/10
+split as the ResNet-18 and ViT rows above it, same grapheme tokenizer and
+vocabulary code, same fixed hyperparameters (learning rate $5\times
+10^{-5}$, 500 warmup steps, weight decay 0.01, batch size 16, up to 5
+epochs with early-stopping patience 3), same beam-4 test-set decoding. No
+writer-identification head this time -- recognition only, isolating
+architecture from every other variable. Under this genuinely controlled
+comparison, ConvNeXt-Base lands within half a point of ViT on word
+accuracy (91.70\% vs.\ 92.21\%) and about a tenth of a point on CER
+(2.63\% vs.\ 2.52\%) -- a tighter match than the looser comparison above,
+and the strongest evidence in this paper that the recognition side of the
+architecture-family question is close to a genuine tie, even as
+Section~\ref{sec:arf-results} shows the writer-identification side is not.
+
+Two further checks target the headline TrOCR~+~grapheme number itself
+rather than the architecture comparison. First, \texttt{encode\_label()}
+in the recognition pipeline prepends an explicit beginning-of-sequence
+token to every label, but \texttt{VisionEncoderDecoderModel} \emph{also}
+prepends \texttt{decoder\_start\_token\_id} (the same token) via
+\texttt{shift\_tokens\_right()} whenever no explicit
+\texttt{decoder\_input\_ids} is supplied -- which this pipeline never
+does. The practical effect is that every model in this paper was trained
+with a doubled beginning-of-sequence token at the start of its decoder
+input, a token \texttt{generate()} never actually supplies at inference
+(a single beginning-of-sequence token only). Retraining ConvNeXt-Base with
+this corrected -- single beginning-of-sequence -- label encoding, holding
+everything else in Table~\ref{tab:encoder-ablation}'s protocol fixed,
+produced a very slightly \emph{worse} result (91.41\% word accuracy,
+2.84\% CER) than the faithful reproduction of the original encoding
+reported above, not a better one. The direction is opposite to what a
+train/inference mismatch account would naively predict, though the gap
+(0.3 points) is well within the range a single run's noise could produce;
+we read this as evidence the doubled-token artifact is not costing this
+architecture-family comparison anything measurable, rather than as
+confirmation it never matters anywhere. \openq{Whether this null result
+holds on the ViT encoder itself -- rather than only on ConvNeXt, tested
+here as a byproduct of the encoder comparison -- is being tested directly
+as this manuscript is being prepared and is not yet resolved; the
+mechanism (Section~\ref{sec:limitations}) predicts the doubled token
+should be harmless precisely because it is a consistent artifact of every
+training example, which a sufficiently expressive decoder can learn to
+absorb by simply emitting it as a free first generation step -- a
+prediction that should hold across encoders if it holds at all, but has
+only been tested on one so far.}
+
+Second, a coarse hyperparameter sweep (10 configurations: five learning
+rates $\times$ two warmup ratios, screened on an 8{,}000-image subsample
+before the winning configuration was retrained at full scale) found a
+configuration -- the original learning rate with a $3\times$ larger warmup
+ratio -- that outperformed the headline setup by a wide margin on the
+short screen (12.67\% vs.\ 17.71\% validation CER at matched, deliberately
+limited step count). That advantage did not survive scaling to the full
+5-epoch training budget: the tuned configuration's test-set result
+(92.21\% word accuracy, 2.50\% CER) is statistically indistinguishable
+from the original, untuned headline number (92.21\%, 2.52\%). Read
+together with the recognition side of Table~\ref{tab:encoder-ablation},
+this is consistent with the headline $\sim$2.5\% CER sitting closer to a
+capacity or data ceiling for this encoder-decoder pair than an
+optimization one: substantially different learning-rate/warmup schedules
+converge to the same place given enough epochs, and a different encoder
+family (ConvNeXt-Base) reaches nearly the same place too.
 
 \begin{table}[h]
 \caption{Tokenizer ablation, TrOCR ViT encoder held constant.}
@@ -1233,7 +1309,13 @@ oracle's (7.74\%, Table~\ref{tab:probe}'s companion result), confirming
 that a pure-convolutional architecture \emph{can} match Transformer-level
 handwriting recognition when given comparable capacity -- exactly the
 premise ConvNeXt was designed around, and the reason it was chosen over a
-plain ResNet.
+plain ResNet. Section~\ref{sec:apples-to-apples} tightens this comparison
+considerably: under the standard (non-writer-disjoint) split and beam-4
+decoding this paper's headline number itself uses -- rather than the
+writer-disjoint, greedy-decoded protocol this section requires -- ConvNeXt
+lands within half a point of ViT on word accuracy, the strongest evidence
+in this paper that the recognition gap between the two architectures is
+close to a genuine tie.
 
 The writer-identification side did not work: retain-writer accuracy
 reached only 5.00\% (chance $\approx 1.35\%$ over 74 classes) and
