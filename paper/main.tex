@@ -528,15 +528,51 @@ TrOCR ViT & $\sim$334M & \textbf{92.21} & \textbf{2.52} & $\approx$3.5 \\
 Tokenizer & Word Acc.\ (\%) & CER (\%) & WER (\%) \\
 \midrule
 Grapheme & \textbf{92.21} & \textbf{2.52} & \textbf{7.79} \\
+BPE, vocab 500 & 91.02 & 3.11 & 8.98 \\
 Character & 88.54 & 3.30 & 11.46 \\
-BPE & 87.77 & 4.25 & 12.23 \\
+SentencePiece Unigram, vocab 2000 & 89.34 & 3.99 & 10.66 \\
+BPE, vocab 2000 & 87.77 & 4.25 & 12.23 \\
+BPE, vocab 4000 & 86.15 & 5.59 & 13.85 \\
 \bottomrule
 \end{tabular*}
 \end{table}
 
-Both ablations were independently re-derived this study from per-sample
-prediction logs of all three trained checkpoints and matched their
-originally reported aggregates exactly.
+The original three-way ablation was independently re-derived this study
+from per-sample prediction logs of all three trained checkpoints and
+matched their originally reported aggregates exactly. Two further
+tokenizer variants (Experiment 4) extend it under an identical protocol
+(row-level split, matching the original three-way comparison rather than
+the writer-disjoint split used elsewhere in this paper; see
+Section~\ref{sec:limitations}), changing exactly one factor each from the
+BPE arm above.
+
+\textbf{Vocabulary size.} Sweeping BPE's vocabulary size while holding
+everything else constant produces a clean, monotonic result in the
+opposite direction from what a larger, more expressive vocabulary might
+suggest: 500 (91.02\% word accuracy) outperforms 2{,}000 (87.77\%), which
+outperforms 4{,}000 (86.15\%). Smaller BPE vocabularies perform
+\emph{better} on this task, not worse -- consistent with a
+visual-instability account (Section~\ref{sec:discussion}): a larger
+subword vocabulary means more distinct merge tokens compete for
+increasingly rare training signal, and each one is a longer, more
+compound handwritten shape for the same greedy-merge instability to act
+on. At vocab 500, BPE (91.02\%) closes most of the gap to grapheme
+(92.21\%) and edges past character tokenization (88.54\%) -- vocabulary
+size, not the merge algorithm alone, accounts for a substantial share of
+BPE's original deficit against the other two tokenizers.
+
+\textbf{Merge algorithm.} Holding vocabulary size fixed at 2{,}000 and
+replacing BPE's greedy pairwise merging with SentencePiece's Unigram
+language-model tokenization improves word accuracy from 87.77\% to
+89.34\% and CER from 4.25\% to 3.99\% -- a real improvement, consistent
+with reports that Unigram outperforms BPE in other low-resource settings,
+but a smaller effect than the vocabulary-size sweep above and still short
+of both grapheme and the vocab-500 BPE arm. The two factors are not
+redundant: switching algorithms at fixed vocabulary size and shrinking
+vocabulary at a fixed algorithm each move word accuracy by 1.6--3.3
+points independently, so BPE's original deficit against grapheme
+tokenization reflects a combination of both factors rather than either one
+alone.
 
 \subsection{Sample-Level Significance}
 \label{sec:sample-sig}
