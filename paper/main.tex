@@ -1,0 +1,996 @@
+%% main.tex
+%% "An Empirical Investigation of Tokenization and Forgetting in Bangla OCR"
+%%
+%% Backbone built on Elsevier's cas-dc double-column class (CAS Bundle).
+%% Requires cas-dc.cls, cas-refs style files from https://ctan.org/pkg/cas-dc
+%% (or Elsevier's author resources page) -- not included here.
+%%
+%% Every number in this file is a real result produced this session; every
+%% \includegraphics points at a real PNG in figs/. Anywhere a result does not
+%% yet exist, that is marked explicitly with \todo{...} rather than a
+%% fabricated placeholder number -- search for "TODO" before submitting.
+
+\documentclass[a4paper,fleqn]{cas-dc}
+
+\usepackage[authoryear,longnamesfirst]{natbib}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+
+\begin{document}
+\let\WriteBookmarks\relax
+\def\floatpagepagefraction{1}
+\def\textpagefraction{.001}
+
+\shorttitle{Tokenization and Forgetting in Bangla OCR}
+\shortauthors{Sajin, Islam and Ahmed}
+
+\title[mode=title]{An Empirical Investigation of Tokenization and Forgetting in Bangla OCR}
+
+\author[1]{Mohammed Irtisam Sajin}
+\ead{}
+\credit{Conceptualization, Methodology, Software, Investigation, Writing -- Original draft}
+
+\author[1]{Md. Kaidul Islam}
+\ead{}
+\credit{Methodology, Software, Investigation, Writing -- Original draft}
+
+\author[1]{Maruf Ahmed}[type=editor]
+\cormark[1]
+\ead{}
+\credit{Supervision, Writing -- Review \& editing}
+\cortext[cor1]{Corresponding author}
+
+\affiliation[1]{organization={Department of Electrical and Electronic Engineering, Bangladesh University of Engineering and Technology (BUET)},
+    city={Dhaka},
+    country={Bangladesh}}
+
+\begin{abstract}
+Bengali handwritten text recognition is complicated by a script with an
+estimated 13{,}000 grapheme variations, produced by extensive consonant
+conjuncts and diacritics -- and by the fact that handwriting itself is a
+durable, writer-specific biometric, raising a second question alongside
+accuracy: can a model's memory of a specific contributor be removed after
+training, as data-protection and consent-withdrawal norms increasingly
+require? This paper addresses both questions on PATHOK, a TrOCR-based
+Bengali handwritten text recognition (HTR) system. First, comparing a
+Vision Transformer encoder against a ResNet-18 baseline and three
+tokenizers (grapheme, character, byte-pair encoding) under an identical
+protocol, our best configuration achieves 92.21\% word accuracy and 2.52\%
+character error rate (CER) on BnHTRD. We go beyond the aggregate ranking
+with a sample-level analysis: a paired significance test (McNemar's exact
+test, $p<10^{-20}$ against both baselines) confirming the tokenizer effect
+is real at the sample level and not a corpus-level artifact; a
+complexity-conditioned breakdown, backed by bootstrapped confidence
+intervals, showing the advantage concentrates in words containing
+consonant conjuncts; and 104 words where grapheme tokenization succeeds
+while both baselines fail simultaneously. A regression test formalizing an
+apparent character/BPE reversal at the longest words finds it is not
+statistically significant, which we report as a caution against
+over-reading small-sample tail buckets rather than as a finding. Second,
+using this same model, we construct a
+writer-disjoint split and a multi-head writer-identification variant, then
+apply the two-stage prune-then-unlearn recipe of \citet{kang2026privacy}
+across five objectives, audited with three independent instruments: a
+membership-inference gate, a few-shot linear probe on frozen encoder
+embeddings, and a retain-replay-controlled relearning attack. Four of five
+methods pass standard output-level success metrics, yet under both the
+probe and the relearning attack, forgetting proves superficial: five
+examples per writer and under 150 fine-tuning steps recover 87--90\% of
+pre-unlearning identifiability. We further test whether attacking the
+representation directly -- an adversarial, continually-refreshed probe
+trained against the frozen-CLS embedding via gradient reversal, and a
+dynamic multi-objective loss weighting adapted from \citet{wang2026rfuss}
+-- closes this gap. It does not: the representation-level attack's own
+residual identifiability (+16.2 points over genuinely unseen writers) is no
+better than plain output-suppression methods, evidence that writer identity
+is encoded redundantly rather than in any single attackable location.
+Together these results indicate that the same rich, general-purpose visual
+representation that gives TrOCR its recognition advantage is exactly what
+resists both script-agnostic tokenization and targeted unlearning, and that
+in both cases aggregate, output-level metrics are not sufficient evidence
+on their own.
+\end{abstract}
+
+\begin{highlights}
+\item TrOCR + grapheme tokenization reaches 92.21\% word accuracy / 2.52\% CER on BnHTRD, an 8.33-point improvement over a ResNet-18 encoder at matched tokenization.
+\item A paired McNemar's test shows the grapheme-tokenization advantage is statistically significant at the sample level ($p<10^{-20}$) against both character and BPE tokenization, not merely a corpus-level artifact.
+\item The advantage concentrates specifically in consonant-conjunct words, with 104 ``triple-divergence'' cases where grapheme tokenization succeeds while both baselines fail on the same word.
+\item Five machine-unlearning methods (WIC, Random Labeling, Fisher Forgetting, Amnesiac Unlearning, DELETE) reduce writer-classification accuracy on forgotten writers, but a frozen-encoder probe and a retain-replay-controlled relearning attack show the underlying representation still identifies them.
+\item A purpose-built representation-level attack (adversarial gradient-reversal probing) and a dynamic multi-objective loss weighting do not outperform simple output-level suppression, indicating writer identity is redundantly encoded across the representation.
+\end{highlights}
+
+\begin{keywords}
+Bangla OCR \sep Handwritten Text Recognition \sep Grapheme Tokenization \sep TrOCR \sep Machine Unlearning \sep Membership Inference \sep Writer Identification \sep Adversarial Representation Learning
+\end{keywords}
+
+\maketitle
+
+%% ====================================================================
+\section{Introduction}
+%% ====================================================================
+
+Optical Character Recognition (OCR) converts text embedded in images into
+machine-readable form, underpinning document digitization, information
+retrieval, and assistive technology. Bengali, the sixth most spoken
+language in the world, remains comparatively underserved: its script
+combines consonants, vowels, diacritics, and an estimated 13{,}000 distinct
+grapheme clusters \citep{alam2021graphemes} -- more than fifty times the
+inventory of English -- and its handwritten form adds wide inter-writer
+stylistic variation on top of that structural complexity.
+
+\todo{Expand: 1--2 paragraphs on the practical stakes of Bangla HTR
+(document digitization, historical archives, administrative backlog) and
+on why encoder and tokenizer choice specifically has remained an open,
+under-evidenced design question -- set up the Related Work gap.}
+
+Handwriting is not only a linguistic signal; it is a durable,
+writer-specific behavioral biometric. A recognition model trained on named
+contributors' samples is therefore, implicitly, also a writer
+re-identification system. This raises a second question that sits
+alongside recognition accuracy: if a contributor withdraws consent, or a
+right-to-erasure request is filed, can that contributor's influence on the
+trained model actually be removed -- not merely made harder to query, but
+genuinely erased from what the model's internal representation encodes?
+This question has not, to our knowledge, previously been examined for
+Bangla or for any Indic-script HTR system.
+
+This paper investigates both questions on a single system, PATHOK, and
+argues that they share a common underlying mechanism. Our contributions
+are:
+
+\begin{enumerate}
+\item An encoder ablation (ResNet-18 vs.\ a pretrained TrOCR Vision
+  Transformer) crossed with a three-way tokenizer ablation (grapheme,
+  character, byte-pair encoding), on BnHTRD, with zero-shot cross-dataset
+  generalization on IIIT-Indic; training/decoding hyperparameters are
+  reported in full in Table~\ref{tab:hparams}, including one recovered
+  inconsistency (Character was decoded at half the beam width of the
+  other two arms).
+\item The first paired, sample-level significance test of tokenizer choice
+  in Bengali HTR (McNemar's exact test, Holm-Bonferroni corrected across a
+  24-test family), together with a complexity-conditioned mechanism
+  (consonant-conjunct presence, grapheme count) explaining \emph{where}
+  the tokenizer advantage concentrates, formalized with a length$\times$tokenizer
+  logistic regression that confirms grapheme's advantage over BPE widens
+  with word length ($p=0.002$) while a superficially similar
+  character/BPE reversal at the longest words does not survive the same
+  test ($p=0.29$).
+\item The first application of the prune-then-unlearn machine unlearning
+  recipe of \citet{kang2026privacy} to a Bangla (or, to our knowledge, any
+  Indic-script) HTR model, audited with three independent instruments
+  rather than the output-level metrics the original evaluation relies on.
+\item A purpose-built representation-level unlearning method (adversarial
+  representation forgetting, adapted from the representation-forgetting
+  strategy of \citet{wang2026rfuss} without retrofitting their Information
+  Bottleneck architecture) and a dynamic multi-objective loss-weighting
+  scheme, evaluated against the same audit -- and shown \emph{not} to
+  outperform simple output-level suppression, which we argue is itself an
+  informative negative result about representational redundancy.
+\end{enumerate}
+
+The rest of this paper is organized as follows. Section~\ref{sec:related}
+reviews prior work in Bangla HTR, tokenization, and machine unlearning.
+Section~\ref{sec:methodology} describes the recognition architecture,
+tokenizers, the sample-level divergence methodology, the writer-identity
+unlearning pipeline, and the audit instruments. Section~\ref{sec:results}
+presents results. Section~\ref{sec:discussion} discusses the unifying
+mechanism. Sections~\ref{sec:limitations} and~\ref{sec:ethics} state
+limitations and ethical considerations, and Section~\ref{sec:conclusion}
+concludes.
+
+%% ====================================================================
+\section{Related Work}
+\label{sec:related}
+%% ====================================================================
+
+\subsection{OCR and Tokenization for Bangla}
+\label{sec:related-ocr}
+
+\todo{Expand: BornoNet, EkushNet, LILA-BOTI, and other CNN/CRNN-CTC
+Bangla HTR systems (condense from the underlying thesis's Section 2.2--2.4
+literature review). Cover the transformer-based encoder-decoder OCR
+lineage: TrOCR \citep{li2023trocr}, built on the Vision Transformer
+\citep{dosovitskiy2021vit} and the original Transformer architecture
+\citep{vaswani2017attention}; and the ResNet family \citep{he2016resnet}
+as the convolutional baseline.}
+
+Grapheme-aware tokenization for Bengali was introduced by
+\citet{basher2023bngraphemizer} (BnGraphemizer), and most recently adopted
+in a full encoder-decoder pipeline by the concurrent GraDeT-HTR system
+\citep{hasan2025gradet}, which pairs a grapheme tokenizer with a
+decoder-only transformer trained without a pretrained visual encoder.
+GraDeT-HTR reports that grapheme tokenization outperforms
+character-level and BPE tokenization on BnHTRD and offers a qualitative
+mechanism -- that subword merges are ``visually unstable in handwritten
+text: even slight variations in a single character can distort the entire
+token'' -- but supports this claim only with aggregate corpus-level CER/WER
+(their Table~1) and a static illustration of how the three tokenizers
+segment one example word (their Figure~2). No prior work, to our
+knowledge, tests whether the aggregate gap is significant at the sample
+level, or identifies \emph{where} in the data it concentrates. Table
+\ref{tab:gradet-compare} situates our best configuration against
+GraDeT-HTR's own reported numbers.
+
+\begin{table}[h]
+\caption{Comparison with GraDeT-HTR's reported BnHTRD results. Splits and
+preprocessing differ between the two studies (see Section~\ref{sec:limitations}), so this is a contextual reference, not a controlled comparison.}
+\label{tab:gradet-compare}
+\begin{tabular*}{\tblwidth}{@{}LLLL@{}}
+\toprule
+System & Tokenizer & CER (\%) & WER (\%) \\
+\midrule
+GraDeT-HTR (\texttt{Word\_BnG\_Random}) & Grapheme & 6.19 & 14.20 \\
+This work (TrOCR + Grapheme) & Grapheme & \textbf{2.52} & \textbf{7.79} \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+Our encoder ablation contrasts a pretrained TrOCR ViT against a ResNet-18
+convolutional baseline (Table~\ref{tab:encoder-ablation}), but this is not
+the only axis along which recent HTR architecture work has moved.
+\citet{li2024htrvt} show that a data-efficient ViT variant -- CNN feature
+extraction feeding a ViT encoder only, trained with Sharpness-Aware
+Minimization and a span-masking regularizer rather than large-scale visual
+pretraining -- is competitive with CNN-based systems on small datasets and
+state-of-the-art on the largest available line-level benchmark. This is a
+relevant counterpoint to Section~\ref{sec:discussion}'s throughline: it
+suggests some of TrOCR's advantage over ResNet-18 in our own ablation could
+in principle be recovered by a much smaller ViT with the right
+regularization, rather than requiring TrOCR's specific scale and
+handwriting-domain pretraining -- a question our Experiment~3/5-style
+capacity controls (Section~\ref{sec:limitations}) are positioned to test
+directly. \citet{kim2026drethtr} instead target the decoder: replacing
+softmax attention with a linear-time retentive mechanism removes the
+growing key-value cache that makes autoregressive HTR decoding slow at
+inference, at accuracy parity with an equally-sized Transformer decoder --
+directly relevant to this paper's own audit pipeline, where decoder
+inference cost (Section~\ref{sec:audit}) was the stated reason
+Table~\ref{tab:unlearn-all} uses greedy rather than beam search across nine
+arms and hundreds of relearning-attack checkpoints; a DRetHTR-style decoder
+would make beam search tractable at that scale and remove the very
+inconsistency flagged in Table~\ref{tab:hparams}. Finally,
+\citet{kasuba2025platter} address a different level of the problem
+entirely: page-level Indic HTR as a two-stage detection-then-recognition
+pipeline, benchmarked across ten Indic languages with a released
+page-level dataset (CHIPS). PATHOK operates strictly at word level, so
+PLATTER's findings do not transfer directly, but its framework is the
+natural next integration point -- grapheme tokenization's advantage is
+established here at the word level, and PLATTER's own results suggest
+detection-stage errors (missed or malformed word crops) compound with
+whatever recognition-stage tokenizer is downstream of them, a source of
+variability this paper's controlled, pre-cropped-word setting does not
+capture.
+
+\subsection{Privacy and Machine Unlearning}
+\label{sec:related-unlearning}
+
+Machine unlearning addresses the ``right to be forgotten'': removing a
+specific data owner's contribution from an already-trained model without
+full retraining. \citet{kang2026privacy} propose a two-stage
+prune-then-unlearn recipe for handwriting recognition models specifically,
+combining neural pruning with five Stage~II unlearning objectives (Writer
+ID Confusion, Random Labeling, Fisher Forgetting, Amnesiac Unlearning, and
+DELETE), evaluated via writer-classification accuracy and a static,
+non-adversarial membership-inference attack (MIA).
+
+Separately, \citet{wang2026rfuss} argue that output-level unlearning
+objectives are insufficient in general: their representation-forgetting
+method (RFU-SS) explicitly minimizes mutual information between a learned
+representation and the erased data, on models trained with a Variational
+Information Bottleneck (VIB) objective, and reports near-complete backdoor
+removal with under 0.2\% accuracy degradation -- a materially stronger
+result than the Hessian-based and variational-Bayesian baselines it
+compares against. Their evaluation paradigm (backdoor-trigger removal
+\citep{hu2022backdooring}, on small classifiers trained from scratch)
+differs from ours in two respects we return to in
+Section~\ref{sec:discussion}: the base architecture (an
+information-bottleneck-regularized classifier vs.\ a richly pretrained
+sequence-to-sequence encoder), and the nature of the erased information
+(an artificially injected, localized trigger vs.\ a natural, holistic
+writer style).
+
+To our knowledge, no prior work applies machine unlearning to Bangla, or to
+any Indic-script, handwritten text recognition system, and no prior work
+audits an HTR unlearning method with a relearning attack or a frozen-
+representation probe rather than the original paper's output-level metrics
+alone.
+
+%% ====================================================================
+\section{Methodology}
+\label{sec:methodology}
+%% ====================================================================
+
+\subsection{Model Architecture}
+\label{sec:arch}
+
+\todo{Expand: encoder-decoder pipeline description (condense from thesis
+Section 3.1). Two encoders are compared: a ResNet-18 CNN
+\citep{he2016resnet} and a Vision Transformer initialized from
+\texttt{microsoft/trocr-base-handwritten} \citep{li2023trocr,
+dosovitskiy2021vit}. A Transformer decoder \citep{vaswani2017attention}
+generates the output token sequence from encoder features.}
+
+\subsection{Tokenization Strategies}
+\label{sec:tokenizers}
+
+Three tokenizers are compared under an identical encoder and, where
+recoverable across the project's separate per-tokenizer training runs,
+an identical training protocol (Table~\ref{tab:hparams}):
+
+\begin{itemize}
+\item \textbf{Grapheme.} Splits text into extended grapheme clusters
+  (Unicode UAX \#29 / \citealt{alam2021graphemes}), so a consonant
+  conjunct such as \textit{ক্রা} remains a single token instead of
+  fragmenting into its constituent codepoints.
+\item \textbf{Character.} Splits into individual Unicode codepoints; each
+  retains a consistent visual identity independent of surrounding context.
+\item \textbf{Byte-Pair Encoding (BPE).} A subword vocabulary learned by
+  greedy pairwise merging on the training corpus, following
+  \citet{basher2023bngraphemizer}'s and \citet{hasan2025gradet}'s
+  comparison baselines.
+\end{itemize}
+
+\subsection{Datasets and Experimental Protocol}
+\label{sec:data}
+
+\todo{Expand: BnHTRD \citep{rahman2023bnhtrd} filtering and 80/10/10 split
+(seed 42) from thesis Section 4.1.1; IIIT-Indic-HW-Words
+\citep{gongidi2021iiitindic} zero-shot cross-dataset protocol from thesis
+Section 4.1.1 and Table 4.3.}
+
+\begin{table}[h]
+\caption{Training and decoding hyperparameters, all three tokenizer arms.
+Shared rows apply identically across arms; the Character row's training
+hyperparameters could not be recovered from the arm's surviving evaluation
+script (data loading and split were confirmed identical; the training
+notebook itself was not preserved) and are marked accordingly.}
+\label{tab:hparams}
+\begin{tabular*}{\tblwidth}{@{}LLLL@{}}
+\toprule
+ & Grapheme & BPE & Character \\
+\midrule
+Base model & \multicolumn{3}{l}{\texttt{microsoft/trocr-base-handwritten}} \\
+Split (train/val/test) & \multicolumn{3}{l}{80/10/10, seed 42} \\
+Max sequence length & \multicolumn{3}{l}{64 tokens} \\
+Vocab size & data-derived & 2{,}000 (SentencePiece BPE) & data-derived \\
+Batch size (train/eval) & 16 / 16 & 16 / 16 & \textit{not recovered} \\
+Epochs (cap, early stop) & 5, patience 3 & 5, patience 4 & \textit{not recovered} \\
+Learning rate & 5e-5 & 5e-5 & \textit{not recovered} \\
+Weight decay & 0.01 & 0.01 & \textit{not recovered} \\
+Decoding & beam, $k{=}4$ & beam, $k{=}4$ & \textbf{beam, $k{=}2$} \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+The decoding mismatch in the table's last row -- Character was evaluated
+with half the beam width of the other two arms -- was only caught during a
+methodology audit after the fact. \todo{Re-decode the Character test set at
+$k{=}4$ for a directly comparable number before submission; on
+current evidence a doubled beam width is very unlikely to close a
+92.21\%-vs-88.54\% word-accuracy gap of this size, but the exact
+Character CER/WER figures in
+Tables~\ref{tab:tokenizer-ablation}--\ref{tab:contingency} should be
+treated as a slightly pessimistic lower bound until that re-run is done.}
+
+\subsection{Sample-Level Divergence Methodology}
+\label{sec:divergence-method}
+
+Beyond aggregate CER/WER, per-sample predictions from the three tokenizer
+checkpoints were merged on the identical BnHTRD test set
+($n=6{,}614$). For each sample the outcome is labeled by which of the three
+models produced the correct word, giving a $2^3$ contingency table (Table
+\ref{tab:contingency}). Statistical significance between any pair of
+tokenizers is assessed with McNemar's exact test on the discordant pairs
+(cases where exactly one of the two models is correct), which is the
+appropriate paired test for two classifiers scored on the same items.
+
+Each ground-truth word is additionally annotated with complexity features
+computed via the same extended-grapheme-cluster segmentation used by the
+grapheme tokenizer itself: grapheme count, presence of $\geq 1$ consonant
+conjunct (a grapheme containing a \textit{hasanta}, U+09CD), and the ratio
+of character length to grapheme length (a proxy for how much a
+codepoint-level tokenizer must ``reassemble'' relative to the visual unit
+count).
+
+\subsection{Writer-Identity Architecture and Unlearning Pipeline}
+\label{sec:unlearn-pipeline}
+
+The best recognition configuration (TrOCR + grapheme tokenization) is
+extended with a linear writer-classification head on the encoder's CLS
+token, trained jointly with the recognition objective. BnHTRD's 125
+writers are partitioned into a writer-disjoint split -- 74 retain writers
+(38{,}275 words), 20 forget writers (7{,}739 words), and 30 held-out test
+writers (18{,}067 words, used only as MIA non-members) -- frozen once and
+reused across every experiment reported in Section~\ref{sec:unlearn-results}.
+A random, non-writer-disjoint split (as used by the base recognition
+system) is unsuitable here: it would let writer identity leak into
+``unseen'' evaluation samples and would leave no valid non-member class for
+membership inference.
+
+\textbf{Stage~I (pruning).} Following \citet{kang2026privacy}, encoder
+feed-forward units are ranked by an importance score
+$(\mathrm{act}_{\text{forget}}+\epsilon)/(\mathrm{act}_{\text{retain}}+\epsilon)$
+computed from mean absolute activations on forget- vs.\ retain-writer
+batches, and the top-ranked units per depth group (shallow/middle/deep) are
+zeroed.
+
+\textbf{Stage~II (unlearning objectives).} Five objectives from
+\citet{kang2026privacy} are implemented on top of the pruned checkpoint:
+Writer-ID Confusion (WIC, KL divergence of the writer head's output to a
+uniform distribution on forget batches), Random Labeling (forget-writer
+labels permuted onto retain-writer classes), Fisher Forgetting (a single
+diagonal-Fisher-scaled gradient step, $\theta \leftarrow \theta - \alpha\,
+g_f/(F+\mu)$), Amnesiac Unlearning (gradient ascent on the forget-writer
+classification loss), and DELETE (masked knowledge distillation against a
+frozen teacher, with forget-class logits set to $-\infty$ in both teacher
+and student before the softmax).
+
+\subsection{Privacy Audit Instruments}
+\label{sec:audit}
+
+Three independent instruments audit each unlearned checkpoint:
+
+\begin{enumerate}
+\item \textbf{Membership-inference (MIA) gate.} A 12-dimensional
+  teacher-forced recognition-confidence feature vector (mean/min/max/std
+  log-probability, entropy, margin, rank statistics) feeds a logistic
+  regression classifier trained on retain (member) vs.\ test (non-member)
+  samples, then applied to the forget set.
+\item \textbf{Few-shot frozen-encoder probe.} A linear classifier is
+  trained \emph{from scratch, after unlearning, on the frozen encoder} to
+  identify forget writers from $k \in \{1,2,3,5,\ldots,150\}$ support
+  examples per writer, and compared against an identical probe on
+  genuinely unseen (test-split) writers. This measures whether writer
+  identity survives in the representation independent of the
+  classification head.
+\item \textbf{Relearning attack.} An attacker is given $k \in \{1,2,3,5\}$
+  real words per forgotten writer and $\leq 150$ fine-tuning steps,
+  \emph{with retain-set replay interleaved at every step} so that recovery
+  cannot be explained by the attack silently retraining the whole model.
+  Retain-set accuracy is tracked throughout as a validity gate.
+\end{enumerate}
+
+\subsection{Representation-Level Forgetting: ARF and MGDA}
+\label{sec:arf-mgda}
+
+Two further methods test whether attacking the representation directly, in
+the spirit of \citet{wang2026rfuss}, improves on output-level suppression
+-- without retrofitting their Variational Information Bottleneck
+architecture onto a model whose CLS embedding is deterministic, not a
+stochastic latent, and for which no $I(Z;X)$ estimator is defined.
+
+\textbf{Adversarial Representation Forgetting (ARF).} A freshly initialized
+probe is trained to identify forget writers directly from the ViT CLS
+embedding $z$; a gradient-reversal layer \citep{ganin2015dann} between $z$
+and the probe pushes the encoder to defeat it, with the probe periodically
+reinitialized (every 100 steps) so the encoder cannot simply learn to fool
+one fixed adversary the way it can fool WIC's static uniform-distribution
+target. The model's own writer head is additionally suppressed via the WIC
+mechanism, purely so output-level metrics remain comparable across all
+eight methods; the representation-level test is the independent post-hoc
+probe of Section~\ref{sec:audit}, which never observes ARF's internal
+training-time adversary.
+
+\textbf{MGDA-weighted objectives.} \citeauthor{wang2026rfuss}'s
+parameter-self-sharing contribution -- a closed-form, per-step
+Pareto-stationary blend weight $\hat\alpha_u$ between a forgetting-objective
+gradient $g_u$ and a remembering-objective gradient $g_r$ on shared
+parameters \citep{sener2018mtl,desideri2012mgda} -- is architecture-agnostic
+and is applied as a drop-in replacement for the fixed loss weights in WIC
+and Random Labeling:
+\begin{equation}
+\hat\alpha_u = \left[\, \frac{(g_r-g_u)^{\!\top} g_r}{\lVert g_r-g_u \rVert_2^2} \,\right]_{+,\,1},
+\qquad
+g_{\text{final}} = \hat\alpha_u\, g_u + (1-\hat\alpha_u)\, g_r,
+\label{eq:mgda}
+\end{equation}
+where $[\cdot]_{+,1}$ clips to $[0,1]$. This is tested as a separate
+experiment from ARF, isolating whether dynamic weighting alone -- with no
+representation-level attack -- improves on fixed-weight output suppression.
+
+%% ====================================================================
+\section{Results}
+\label{sec:results}
+%% ====================================================================
+
+\subsection{Aggregate Recognition Results}
+\label{sec:agg-results}
+
+\begin{table}[h]
+\caption{Encoder ablation, grapheme tokenization held constant.}
+\label{tab:encoder-ablation}
+\begin{tabular*}{\tblwidth}{@{}LLLLL@{}}
+\toprule
+Encoder & Params & Word Acc.\ (\%) & CER (\%) & Throughput (samp./s) \\
+\midrule
+ResNet-18 CNN & 37.4M & 83.88 & 8.36 & $\approx$27 \\
+TrOCR ViT & $\sim$334M & \textbf{92.21} & \textbf{2.52} & $\approx$3.5 \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\begin{table}[h]
+\caption{Tokenizer ablation, TrOCR ViT encoder held constant.}
+\label{tab:tokenizer-ablation}
+\begin{tabular*}{\tblwidth}{@{}LLLL@{}}
+\toprule
+Tokenizer & Word Acc.\ (\%) & CER (\%) & WER (\%) \\
+\midrule
+Grapheme & \textbf{92.21} & \textbf{2.52} & \textbf{7.79} \\
+Character & 88.54 & 3.30 & 11.46 \\
+BPE & 87.77 & 4.25 & 12.23 \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+Both ablations were independently re-derived this study from per-sample
+prediction logs of all three trained checkpoints and matched their
+originally reported aggregates exactly.
+
+\subsection{Sample-Level Significance}
+\label{sec:sample-sig}
+
+\begin{table}[h]
+\caption{Full 3-way outcome distribution on the BnHTRD test set
+($n=6{,}614$). G/B/C = correct under Grapheme/BPE/Character tokenization.}
+\label{tab:contingency}
+\begin{tabular*}{\tblwidth}{@{}LLLL@{}}
+\toprule
+Outcome & $n$ & Outcome & $n$ \\
+\midrule
+GBC (all correct) & 5{,}293 & C only & 100 \\
+GC & 369 & BC & 94 \\
+GB & 333 & B only & 85 \\
+\textbf{G only} & \textbf{104} & None correct & 236 \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+McNemar's exact test, paired on the same 6{,}614 items: Grapheme vs.\ BPE
+(473 grapheme-only-correct vs.\ 179 BPE-only-correct, $p=1.6\times
+10^{-31}$); Grapheme vs.\ Character (437 vs.\ 194, $p=1.7\times 10^{-22}$).
+The aggregate CER gap of Section~\ref{sec:agg-results} is not a
+corpus-level artifact but an overwhelming sample-level effect against both
+baselines independently. 104 words (1.6\% of the test set) are
+\emph{triple-divergence} cases: grapheme tokenization correct while
+\emph{both} baselines are wrong on the same word.
+
+\subsection{Complexity-Conditioned Analysis}
+\label{sec:complexity}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/fig_outcome_by_gcount.png}
+\caption{Word accuracy for all three tokenizers vs.\ ground-truth grapheme
+count. Character tokenization's advantage over BPE inverts at 7--8
+graphemes (69\% vs.\ 79\%); grapheme tokenization does not collapse at
+this length (90\%).}
+\label{fig:by-gcount}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/fig_outcome_by_conjunct.png}
+\caption{Word accuracy for all three tokenizers, grouped by presence of a
+consonant conjunct in the ground-truth word.}
+\label{fig:by-conjunct}
+\end{figure}
+
+With $\geq 1$ consonant conjunct present, accuracy on conjunct words is
+87.6\% (grapheme), 81.5\% (character), 78.5\% (BPE), against 91--94\% for
+all three on conjunct-free words -- grapheme's unique-win rate against BPE
+more than doubles on conjunct words (5.3\%~$\to$~12.4\%). Bootstrapped 95\%
+confidence intervals (5{,}000 resamples) confirm all three of these
+differences hold up: [86.1, 89.1] vs.\ [79.6, 83.2] vs.\ [76.6, 80.4] for
+conjunct words, non-overlapping across all three tokenizers.
+
+Figure \ref{fig:by-gcount} shows character tokenization's point-estimate
+advantage over BPE apparently inverting at the longest word-length bucket
+(7--8 graphemes: 69.0\% character vs.\ 79.0\% BPE, against character
+leading at every shorter bucket). We tested this formally with a logistic
+regression of correctness on grapheme-cluster count, tokenizer identity,
+and their interaction (pooled across all bucket boundaries rather than the
+coarse 4-bin split, $n=13{,}228$ tokenizer-sample pairs): the
+length$\times$tokenizer interaction is \emph{not} statistically
+significant ($\beta=0.021$, $p=0.29$), and the 7--8 bucket itself has only
+$n=100$ words with bootstrapped CIs for character [60.0, 78.0] and BPE
+[71.0, 87.0] that overlap substantially. We therefore do not report this as
+a confirmed crossover: it is a suggestive point-estimate reversal in an
+underpowered tail bucket that a formal test does not support, and we flag
+it as exactly the kind of small-sample pattern that should not be
+overclaimed. The corresponding grapheme-vs-BPE interaction, by contrast,
+\emph{is} significant and positive ($\beta=0.137$, $p=0.002$): grapheme's
+advantage over BPE formally widens with word length, consistent with
+longer words containing more conjuncts and reinforcing
+Section~\ref{sec:sample-sig}'s conjunct-localization result rather than
+complicating it.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/fig_top_conjuncts.png}
+\caption{Conjuncts most associated with the 104 grapheme-wins vs.\ 94
+baselines-win triple-divergence cases.}
+\label{fig:top-conjuncts}
+\end{figure}
+
+\subsection{Qualitative Evidence}
+\label{sec:qualitative}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/fig_qualitative_grid.png}
+\caption{Twelve handwriting samples where grapheme tokenization is correct
+and BPE is wrong; predictions from both models shown beneath each image.}
+\label{fig:qual-grid-bpe}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/fig_triple_divergence_grid.png}
+\caption{Nine triple-divergence examples: grapheme tokenization correct
+while both BPE and character tokenization are wrong on the same word.}
+\label{fig:qual-grid-triple}
+\end{figure}
+
+\subsection{Cross-Dataset Generalization}
+\label{sec:cross-dataset}
+
+\begin{table}[h]
+\caption{Zero-shot cross-dataset evaluation of TrOCR + Grapheme, trained
+exclusively on BnHTRD.}
+\label{tab:cross-dataset}
+\begin{tabular*}{\tblwidth}{@{}LLLLL@{}}
+\toprule
+Eval.\ set & $n$ & Word Acc.\ (\%) & CER (\%) & WER (\%) \\
+\midrule
+BnHTRD (in-domain) & 6{,}614 & 92.21 & 2.52 & 7.79 \\
+IIIT-Indic (out-of-domain) & 17{,}574 & 42.59 & 20.66 & 57.41 \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\todo{Expand: discussion of the cross-dataset gap (writer style,
+vocabulary, and acquisition-pipeline differences; catastrophic-failure
+rate stays low at 9.8\% vs.\ 0.9\% in-domain -- condensed from thesis
+Section 4.3.3).}
+
+\subsection{Unlearning Results}
+\label{sec:unlearn-results}
+
+\begin{table*}[t]
+\caption{Output-level unlearning results, all methods, on the writer-disjoint split. Fisher Forgetting's row (marked *) reflects a destroyed model, not selective forgetting: CER stays above 180\% through 760 fine-tuning steps.}
+\label{tab:unlearn-all}
+\begin{tabular*}{\tblwidth}{@{}LLLLLL@{}}
+\toprule
+Arm & wAcc forget (\%) & wAcc retain (\%) & CER forget (\%) & CER test (\%) & MIA forget-seen (\%) \\
+\midrule
+Baseline & 100 & 100 & 0.09 & 6.8 & 93.6 \\
+Pruning only & 0 & 12.3 & 78.4 & 82.9 & 58.6 \\
+WIC & 10.2 & 95.4 & 1.39 & 11.2 & 92.3 \\
+Random Labeling & 0.3 & 94.9 & 1.23 & 11.1 & 93.0 \\
+Fisher Forgetting* & 0* & 0.8* & 182.8* & 191.3* & 51.7* \\
+Amnesiac Unlearning & 54.3 & 95.7 & 3.56 & 10.8 & 81.9 \\
+DELETE & 41.3 & 94.9 & 5.28 & 13.7 & 78.2 \\
+ARF (this work) & 14.4 & 95.3 & 0.87 & 11.0 & 93.3 \\
+WIC + MGDA (this work) & 8.5 & 83.0 & 1.43 & 12.0 & 95.6 \\
+Random Labeling + MGDA (this work) & 4.5 & 95.5 & 2.84 & 11.6 & 90.2 \\
+\bottomrule
+\end{tabular*}
+\end{table*}
+
+Two definitional points keep Table~\ref{tab:unlearn-all} from being read
+against the wrong reference. First, wAcc forget/retain is closed-set
+writer-identification accuracy evaluated with the writer head exactly as
+it stood after joint training -- both writer groups were members of the
+original 94-writer training population, so the Baseline row's 100\%/100\%
+is the (expected) starting point the audit measures collapse from, not a
+claim that forget writers are already distinguished from anyone unseen.
+Second, CER forget (0.09\%) is measured on the same in-sample writers'
+training-distribution handwriting, while CER test (6.8\%) is measured on
+the held-out test-split writers and samples the model never trained on;
+the gap between them is ordinary train/test generalization, not an
+unlearning effect. Table~\ref{tab:unlearn-all}'s CER/WER columns also use
+greedy decoding (\texttt{num\_beams=1}) throughout, applied uniformly to
+every arm so that comparisons \emph{within} the table remain apples-to-apples
+across the ten rows -- this is why Baseline's CER test (6.8\%) does not
+match the beam-search CER of 2.52\% reported in
+Tables~\ref{tab:encoder-ablation}--\ref{tab:cross-dataset}
+(\texttt{num\_beams=4}): the unlearning audit repeats generation across
+nine arms and, for the relearning attack, hundreds of checkpoints, and
+greedy decoding was chosen for tractability at that scale rather than for
+the strongest achievable recognition number. \todo{If time permits,
+re-verify the Baseline row under beam search to give one directly
+comparable anchor point between the two evaluation protocols.}
+
+Judged purely by Table~\ref{tab:unlearn-all} -- the way
+\citet{kang2026privacy}'s own evaluation judges it -- most methods
+reproduce the paper's central claim: forget-writer identifiability drops
+sharply while retain-set recognition stays close to baseline. The
+remaining two audit instruments overturn this reading.
+
+\begin{table}[h]
+\caption{1-shot frozen-encoder probe accuracy, forget writers vs.\
+genuinely unseen writers, and the residual gap between them (chance $=5\%$).}
+\label{tab:probe}
+\begin{tabular*}{\tblwidth}{@{}LLLL@{}}
+\toprule
+Arm & Forget (\%) & Unseen (\%) & Gap (pt) \\
+\midrule
+Baseline & 99.9 & 62.5 & +37.4 \\
+WIC & 63.3 & 52.2 & +11.2 \\
+Random Labeling & 70.9 & 58.4 & +12.4 \\
+Amnesiac & 81.8 & 63.1 & +18.7 \\
+DELETE & 74.9 & 58.2 & +16.8 \\
+Fisher* & 5.3 & 5.2 & +0.1* \\
+ARF (this work) & 69.6 & 53.4 & +16.2 \\
+WIC + MGDA (this work) & 45.7 & 49.6 & $-3.9^{\dagger}$ \\
+RL + MGDA (this work) & 73.5 & 57.5 & +16.1 \\
+\bottomrule
+\end{tabular*}
+\end{table}
+\noindent{\footnotesize *Both at chance -- collapse, not forgetting.
+$^{\dagger}$See Section~\ref{sec:arf-results}: this arm's retain-writer
+probe accuracy also collapsed (68.2\%), indicating general representational
+damage rather than a targeted effect.}
+
+\begin{table}[h]
+\caption{Relearning-attack recovery at $k=5$ examples/writer, 150 steps, with retain-set accuracy before/after (retain-replay controlled).}
+\label{tab:relearn}
+\begin{tabular*}{\tblwidth}{@{}LLLLL@{}}
+\toprule
+Arm & Start (\%) & Final (\%) & Retain start$\to$final \\
+\midrule
+WIC & 8.5 & 90.1 & 96.0 $\to$ 94.0 \\
+Random Labeling & 0.2 & 89.1 & 94.75 $\to$ 94.75 \\
+Amnesiac & 55.1 & 88.4 & 95.0 $\to$ 96.25 \\
+DELETE & 42.6 & 86.9 & 95.75 $\to$ 94.75 \\
+Fisher* & 0.0 & 0.0 & 0.75 $\to$ 0.75 \\
+ARF (this work) & 14.5 & 88.9 & 95.0 $\to$ 95.75 \\
+WIC + MGDA (this work) & 7.75 & 87.5 & 82.75 $\to$ 91.0 \\
+RL + MGDA (this work) & 4.25 & 89.6 & 95.75 $\to$ 96.0 \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+Every arm's retain accuracy stays within a few points of its starting
+value (WIC+MGDA's \emph{rises} 8.25 points, discussed in
+Section~\ref{sec:arf-results}) while forget-writer identifiability climbs
+74--90 points over the same 150 steps -- ruling out ``the attack just
+retrains the whole model'' as an explanation for recovery.
+
+\subsection{Representation-Level Attack Results}
+\label{sec:arf-results}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/fig_residual_gap_all_methods.png}
+\caption{1-shot probe residual gap, all eight unlearning methods. ARF sits
+squarely within the range of output-level methods, not below it.}
+\label{fig:residual-gap}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/fig_targeted_vs_collapse.png}
+\caption{Forget-writer vs.\ retain-writer probe accuracy, one point per
+method. WIC+MGDA sits off the pack toward the lower-left, indicating
+general representational damage rather than selective forgetting.}
+\label{fig:targeted-vs-collapse}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/fig_probe_curves_new_methods.png}
+\caption{Frozen-encoder probe accuracy vs.\ shots per writer, forget vs.\
+unseen writers, for the three new methods. The gap never closes, including
+at saturation (150 shots).}
+\label{fig:probe-curves}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/fig_relearn_recovery_all_methods.png}
+\caption{Relearning-attack recovery (5-shot, 150 steps), all eight
+methods. ARF and both MGDA variants recover as fast as every output-level
+method.}
+\label{fig:relearn-recovery}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/fig_retain_stability_new_methods.png}
+\caption{Retain-writer accuracy before/after the relearning attack, three
+new methods.}
+\label{fig:retain-stability}
+\end{figure}
+
+ARF's own training-time adversary is driven to 0\% accuracy during
+training -- internally, the attack looks completely successful. Table
+\ref{tab:probe} and Figure~\ref{fig:residual-gap} show that a
+\emph{fresh}, independently-trained probe still recovers forget-writer
+identity at 69.6\% 1-shot accuracy, a residual gap (+16.2~pt) \emph{larger}
+than plain WIC's (+11.2~pt), and Figure~\ref{fig:relearn-recovery} shows a
+relearning-attack recovery (88.9\% at 5-shot) indistinguishable from every
+output-level method. Fooling one adversary, however sophisticated or
+however often refreshed, does not establish that a \emph{different}
+adversary cannot still succeed against the same representation.
+
+MGDA weighting is a mixed result, not a clean improvement on either
+baseline it modifies. Random Labeling+MGDA is statistically
+indistinguishable from fixed-weight Random Labeling on every metric.
+WIC+MGDA's apparent win in Table~\ref{tab:probe} -- the only \emph{negative}
+residual gap in this study -- does not survive Figure
+\ref{fig:targeted-vs-collapse}: its retain-writer probe accuracy also
+collapsed (68.2\% vs.\ 90\%+ for every other working method), and its
+retain-set accuracy \emph{recovers} 8.25 points during the relearning
+attack rather than holding steady (Table~\ref{tab:relearn},
+Figure~\ref{fig:retain-stability}) -- the signature of general
+representational damage, not a targeted effect.
+
+\begin{table}[h]
+\caption{Summary verdict, representation-level methods.}
+\label{tab:verdict}
+\begin{tabular*}{\tblwidth}{@{}LLLL@{}}
+\toprule
+Method & Attacks & Residual gap & Verdict \\
+\midrule
+ARF & Representation & +16.2 pt & No better than output-level \\
+WIC+MGDA & Head (weighted) & $-3.9$ pt & Collapse, not forgetting \\
+RL+MGDA & Head (weighted) & +16.1 pt & No change vs.\ fixed weights \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\todo{Add if run: ResNet-18 encoder unlearning-resistance control (does a
+smaller, non-pretrained encoder forget more cleanly than TrOCR?) -- not
+executed this study; see Section~\ref{sec:limitations}.}
+
+%% ====================================================================
+\section{Discussion}
+\label{sec:discussion}
+%% ====================================================================
+
+Two results, otherwise unrelated, trace to the same property. TrOCR's ViT
+encoder produces a rich, general-purpose visual representation of
+handwriting style -- 197 patch embeddings a cross-attention decoder can
+selectively attend over, pretrained on large-scale handwritten-OCR corpora
+-- and that representational richness is \emph{why} it beats ResNet-18 by
+8.33 points Word Accuracy (Table~\ref{tab:encoder-ablation}). The same
+richness is \emph{why} a writer's identity survives all five Kang et
+al.\ unlearning objectives, and the purpose-built ARF attack, at the
+representation level (Sections~\ref{sec:unlearn-results}--\ref{sec:arf-results}):
+a representation expressive enough to generalize across 74 retain writers
+is expressive enough to keep a forgotten writer's style linearly separable
+long after the classification head sitting on top of it has been driven to
+chance.
+
+There is a second, methodological throughline. Corpus-level CER/WER made
+grapheme tokenization's advantage look like a modest aggregate improvement;
+only a paired, sample-level significance test (Section~\ref{sec:sample-sig})
+revealed it is a large, mechanism-explicable effect concentrated in a
+specific word class. Symmetrically, output-level unlearning metrics
+(writer-head accuracy, a static MIA) made forgetting look complete; only
+representation-level probing and an adversarial relearning attack revealed
+it was not. In both halves of this paper, \textbf{aggregate, output-level
+evaluation was not sufficient on its own} -- the real effect, in one
+direction or the other, only appeared one level below the standard metric.
+
+\todo{Expand: (i) now that the character/BPE reversal at long words has
+failed a formal significance test (Section~\ref{sec:sample-sig}), drop the
+autoregressive-error-accumulation explanation as a confirmed mechanism and
+reframe it, if kept at all, as a hypothesis for why the point estimate
+moved that a properly powered follow-up (more long-word samples) could
+still test; (ii) why ARF's failure to outperform WIC/Random Labeling is
+informative about representational redundancy specifically, not just about
+adversarial training being hard in general; (iii) relation to
+\citet{wang2026rfuss}'s own success on backdoor removal -- architecture
+gap (VIB-regularized-from-scratch vs.\ richly pretrained) and task gap
+(artificial, localized trigger vs.\ natural, holistic writer style) as two
+independent, sufficient explanations that do not require RFU-SS's own
+reported numbers to be incorrect on their own benchmark.}
+
+%% ====================================================================
+\section{Limitations}
+\label{sec:limitations}
+%% ====================================================================
+
+\begin{itemize}
+\item The sample-level divergence analysis (Section~\ref{sec:sample-sig})
+  is single-dataset (BnHTRD); the triple-divergence subgroup is small
+  ($n=104$), so the per-conjunct rates in Figure~\ref{fig:top-conjuncts}
+  are illustrative rather than independently significant.
+\item Stage~I pruning's forget/retain activation gap was previously shown
+  statistically indistinguishable from a null-distribution control
+  (permutation $p=0.286$) and was not re-validated in this pass; the
+  pruning step's contribution to Table~\ref{tab:unlearn-all} should not be
+  read as validated targeting of forget-specific structure.
+\item The relearning attack's recovery target is the original baseline's
+  forget-writer accuracy rather than a retrain-from-scratch oracle; an
+  oracle checkpoint was not available among this study's Kaggle kernel
+  inputs for the ARF/MGDA arms specifically (the same limitation applies
+  to the original five methods).
+\item ARF ports the \emph{strategy} of \citet{wang2026rfuss} (attack the
+  representation, not the head) via gradient reversal, not their literal
+  Variational Information Bottleneck architecture or mutual-information
+  loss. A more faithful reproduction -- retrofitting a stochastic VIB
+  bottleneck into the PATHOK encoder -- was out of scope for this study and
+  may behave differently, though Section~\ref{sec:discussion} argues the
+  architecture and task gap would likely still apply.
+\item The ResNet-18-vs-forgetting-resistance control proposed in
+  Section~\ref{sec:arf-results} (does a smaller, non-pretrained encoder
+  resist unlearning less?) was not run; it would provide more direct causal
+  evidence for the throughline of Section~\ref{sec:discussion} than the
+  correlational argument given there.
+\item Table~\ref{tab:gradet-compare}'s comparison against GraDeT-HTR uses
+  each study's own reported numbers rather than a re-run under identical
+  splits and preprocessing, and should be read as contextual rather than
+  strictly controlled.
+\end{itemize}
+
+\todo{Add any additional limitations identified during expatiation.}
+
+%% ====================================================================
+\section{Ethical Considerations}
+\label{sec:ethics}
+%% ====================================================================
+
+This study's own results show that output-level unlearning success metrics
+-- writer-head accuracy, a static membership-inference gate -- are not
+trustworthy evidence that a writer's biometric handwriting signature has
+been removed from a trained model. Any deployment that promises
+writer-level data deletion under a right-to-erasure request built on this
+class of model therefore requires representation-level auditing (a
+frozen-encoder probe and, ideally, an adversarial relearning attack), not
+head-accuracy checks alone. Reporting Fisher Forgetting's outright failure
+and the relearning attack's success against every other method, without
+softening either result, is itself the ethical position of an audit study
+of this kind.
+
+\todo{Expand per the underlying thesis's Section 5.1--5.3 (societal,
+health/safety, legal/cultural issues; environment and sustainability) and
+any institutional/IRB-style statement required by the target venue.}
+
+%% ====================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+%% ====================================================================
+
+This paper reproduces and extends two separate lines of prior work on a
+single Bangla HTR system. On recognition, TrOCR with grapheme tokenization
+reaches 92.21\% word accuracy and 2.52\% CER, and a sample-level,
+paired-significance analysis shows the tokenizer effect is real,
+statistically overwhelming, and concentrated specifically in
+consonant-conjunct words -- going beyond the aggregate rankings reported by
+prior Bangla HTR tokenizer studies. On privacy, five machine-unlearning
+methods and two representation-level methods built for this study all
+leave a Bangla handwriting model's memory of specific writers
+recoverable, under both a frozen-encoder probe and a retain-replay-controlled
+relearning attack, despite passing the output-level metrics the original
+unlearning literature relies on. Both findings trace to the same property:
+the rich, general-purpose visual representation that gives TrOCR its
+recognition advantage over a convolutional baseline is exactly what
+resists both script-agnostic tokenization and targeted removal --
+and in both cases, aggregate output-level metrics were not sufficient
+evidence on their own.
+
+\todo{Expand with forward-looking statement once the ResNet-forgetting
+control and any additional experiments are complete.}
+
+%% ====================================================================
+\appendix
+\section{Additional Qualitative Examples}
+\label{sec:appendix}
+
+\todo{Space reserved for additional example grids / failure cases /
+per-writer breakdowns, to be added during expatiation.}
+
+\printcredits
+
+\bibliographystyle{cas-model2-names}
+\bibliography{refs}
+
+\end{document}
