@@ -84,10 +84,17 @@ pre-unlearning identifiability. We further test whether attacking the
 representation directly -- an adversarial, continually-refreshed probe
 trained against the frozen-CLS embedding via gradient reversal, and a
 dynamic multi-objective loss weighting adapted from \citet{wang2026rfuss}
--- closes this gap. It does not: the representation-level attack's own
-residual identifiability (+16.2 points over genuinely unseen writers) is no
-better than plain output-suppression methods, evidence that writer identity
-is encoded redundantly rather than in any single attackable location.
+-- closes this gap. In its original single configuration it does not
+(+16.2 points over genuinely unseen writers, no better than plain
+output-suppression methods); a five-arm ablation over adversary capacity,
+ensemble size, reset cadence, and loss weight shows this partly reflected
+an adversary-capacity ceiling rather than pure representational redundancy
+-- a deeper or ensembled adversary lowers the residual gap below every
+output-level method's (+8.5 points, without the retain-writer collapse
+that invalidates a naive loss-weight increase's apparently larger
+improvement) -- yet even the best configuration leaves forget-writer
+identity clearly above the unseen-writer floor, so genuine forgetting is
+still not achieved.
 Together these results indicate that the same rich, general-purpose visual
 representation that gives TrOCR its recognition advantage is exactly what
 resists both script-agnostic tokenization and targeted unlearning, and that
@@ -100,7 +107,7 @@ on their own.
 \item A paired McNemar's test shows the grapheme-tokenization advantage is statistically significant at the sample level ($p<10^{-20}$) against both character and BPE tokenization, not merely a corpus-level artifact.
 \item The advantage concentrates specifically in consonant-conjunct words, with 104 ``triple-divergence'' cases where grapheme tokenization succeeds while both baselines fail on the same word.
 \item Five machine-unlearning methods (WIC, Random Labeling, Fisher Forgetting, Amnesiac Unlearning, DELETE) reduce writer-classification accuracy on forgotten writers, but a frozen-encoder probe and a retain-replay-controlled relearning attack show the underlying representation still identifies them.
-\item A purpose-built representation-level attack (adversarial gradient-reversal probing) and a dynamic multi-objective loss weighting do not outperform simple output-level suppression, indicating writer identity is redundantly encoded across the representation.
+\item A purpose-built representation-level attack (adversarial gradient-reversal probing) does not outperform output-level suppression in its original configuration, but a five-arm adversary-capacity ablation shows a deeper or ensembled adversary lowers the residual gap below every output-level method tested, without the retain-writer collapse that confounds a naive loss-weight increase -- evidence the original result was partly an adversary-capacity ceiling, though even the best configuration falls well short of genuine forgetting.
 \end{highlights}
 
 \begin{keywords}
@@ -819,6 +826,50 @@ output-level method. Fooling one adversary, however sophisticated or
 however often refreshed, does not establish that a \emph{different}
 adversary cannot still succeed against the same representation.
 
+We tested this directly with a five-arm ablation over the ARF adversary's
+capacity (a deeper 3-layer probe at full hidden width instead of the
+original 2-layer, halved-width one), ensemble size (3 concurrently-trained
+probes the encoder must fool jointly), reset cadence (every 25 steps
+instead of 100, and never), and loss weight (\texttt{LAMBDA\_ADV} and
+\texttt{GRL\_LAMBDA} raised $3\times$), each otherwise identical to the
+original ARF run (800 iterations, same Stage~I pruning, same retain
+objective). The result complicates the single-configuration verdict above.
+A deeper probe (\texttt{arf\_deepprobe}, residual gap $+8.5$~pt) and a
+3-probe ensemble (\texttt{arf\_ensemble3}, $+11.0$~pt) both reach a
+\emph{smaller} residual gap than every original output-level method,
+including WIC's previous best of $+11.2$~pt -- and, critically, without the
+collapse confound that invalidated WIC+MGDA's apparent win: 1-shot
+retain-writer probe accuracy stays at 91.3\% and 91.6\% respectively,
+close to the healthy range every other working method occupies, not the
+68.2\% collapse floor. A faster reset cadence
+(\texttt{arf\_reset25}, $+12.4$~pt, 91.4\% retain) shows the same pattern
+more weakly; never resetting the probe (\texttt{arf\_noreset}, $+15.6$~pt,
+89.9\% retain) is roughly indistinguishable from the original ARF
+configuration. Scaling the loss weights $3\times$
+(\texttt{arf\_strongadv}) looks worse by the residual-gap number alone
+($+22.4$~pt) but this reading is confounded exactly the way WIC+MGDA's was:
+1-shot retain-writer probe accuracy drops to 76.6\%, a clear partial
+collapse rather than a cleaner failure to forget.
+
+This means the answer to Experiment 6's motivating question is neither
+``adversary capacity was the whole story'' nor ``the representation is
+simply redundant, full stop.'' A stronger adversary -- specifically
+deeper or ensembled, not simply more aggressively weighted -- recovers
+less forget-writer information than the original single-configuration ARF
+run, and less than any output-level method tested in this paper, while
+leaving retain-writer information intact. The original ARF result
+therefore understated what representation-level attacks can achieve; it
+was, in part, an adversary-capacity ceiling rather than proof that the
+representation cannot be attacked more effectively. It was not, however, a
+capacity ceiling that naive loss-weight scaling removes -- that axis
+degrades into the same general representational damage MGDA's aggressive
+weighting produced. None of the five variants reaches a residual gap near
+zero: even the best ($+8.5$~pt) leaves forget-writer identity clearly
+above the unseen-writer floor, so the qualitative conclusion --
+representation-level attacks alone do not achieve the kind of forgetting
+their training-time success metrics suggest -- still holds. It holds by a
+narrower margin than the original single-run comparison implied.
+
 MGDA weighting is a mixed result, not a clean improvement on either
 baseline it modifies. Random Labeling+MGDA is statistically
 indistinguishable from fixed-weight Random Labeling on every metric.
@@ -832,15 +883,22 @@ Figure~\ref{fig:retain-stability}) -- the signature of general
 representational damage, not a targeted effect.
 
 \begin{table}[h]
-\caption{Summary verdict, representation-level methods.}
+\caption{Summary verdict, representation-level methods and the Experiment~6
+ARF ablation suite. Residual gap is the 1-shot CLS-probe forget-minus-unseen
+accuracy; retain is 1-shot retain-writer probe accuracy, the collapse check.}
 \label{tab:verdict}
-\begin{tabular*}{\tblwidth}{@{}LLLL@{}}
+\begin{tabular*}{\tblwidth}{@{}LLLLL@{}}
 \toprule
-Method & Attacks & Residual gap & Verdict \\
+Method & Attacks & Residual gap & Retain & Verdict \\
 \midrule
-ARF & Representation & +16.2 pt & No better than output-level \\
-WIC+MGDA & Head (weighted) & $-3.9$ pt & Collapse, not forgetting \\
-RL+MGDA & Head (weighted) & +16.1 pt & No change vs.\ fixed weights \\
+ARF & Representation & +16.2 pt & -- & No better than output-level \\
+ARF+deep probe & Representation & +8.5 pt & 91.3\% & Better than any output-level arm \\
+ARF+3-ensemble & Representation & +11.0 pt & 91.6\% & Better than any output-level arm \\
+ARF+reset25 & Representation & +12.4 pt & 91.4\% & Modest improvement \\
+ARF+no reset & Representation & +15.6 pt & 89.9\% & $\approx$ original ARF \\
+ARF+3$\times$ weight & Representation & +22.4 pt & 76.6\% & Collapse, not forgetting \\
+WIC+MGDA & Head (weighted) & $-3.9$ pt & 68.2\% & Collapse, not forgetting \\
+RL+MGDA & Head (weighted) & +16.1 pt & -- & No change vs.\ fixed weights \\
 \bottomrule
 \end{tabular*}
 \end{table}
@@ -938,9 +996,16 @@ failed a formal significance test (Section~\ref{sec:sample-sig}), drop the
 autoregressive-error-accumulation explanation as a confirmed mechanism and
 reframe it, if kept at all, as a hypothesis for why the point estimate
 moved that a properly powered follow-up (more long-word samples) could
-still test; (ii) why ARF's failure to outperform WIC/Random Labeling is
-informative about representational redundancy specifically, not just about
-adversarial training being hard in general; (iii) relation to
+still test; (ii) [Largely resolved by the Section~\ref{sec:arf-results}
+ablation suite -- the single-configuration ARF result understated what
+representation-level attacks can achieve, and part of the original
+adversarial-training-is-hard reading was a capacity ceiling a deeper or
+ensembled adversary partially removes. What remains genuinely open:
+whether an even stronger adversary (deeper still, larger ensemble) would
+keep closing the gap toward zero, or asymptote above it the way
+\texttt{arf\_noreset} suggests -- this study's five-point ablation grid
+cannot distinguish a capacity ceiling that keeps receding from one that is
+actually being approached.]; (iii) relation to
 \citet{wang2026rfuss}'s own success on backdoor removal -- architecture
 gap (VIB-regularized-from-scratch vs.\ richly pretrained) and task gap
 (artificial, localized trigger vs.\ natural, holistic writer style) as two
