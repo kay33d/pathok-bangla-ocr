@@ -1023,6 +1023,34 @@ open question, and a second dataset (not necessarily a different
 language, since the recognition side already generalizes across script
 complexity) would be the natural way to close it.
 
+We then closed that open question directly with a second, independent
+Bangla dataset: BanglaWriting~\citep{mridha2021banglawriting}, 260
+writers and 21,234 words of single-page handwriting with word-level
+bounding-box annotations, collected under a completely different
+acquisition pipeline than BnHTRD and sharing no writers with it. Using
+the identical joint recognition-plus-writer-identification recipe (the
+already-tuned $20\times$/$10\times$ ConvNeXt configuration, applied from
+the start rather than re-derived) and a fresh character-level decoder
+vocabulary sized to this dataset, both encoders were trained for 6
+epochs on a sample-level (not writer-disjoint) split, so that every
+writer appears in both train and validation and a low score cannot be
+explained by a writer the model never saw. The result reproduces the
+BnHTRD dissociation almost exactly: the TrOCR ViT encoder reached
+68.30\% validation writer-identification accuracy (chance $\approx
+0.38\%$ over 260 classes), while ConvNeXt-Base reached 0.75\% --
+statistically indistinguishable from chance -- despite both encoders'
+recognition loss falling on comparable schedules (ConvNeXt: 1.64 $\to$
+0.03 over the same 6 epochs, confirming the encoder and decoder were
+training normally throughout). With this second, independently
+collected Bangla dataset now agreeing with BnHTRD, and the earlier
+tuning attempt already having ruled out an under-trained-adapter
+explanation on BnHTRD itself, the evidence for explanation (i) -- that
+ConvNeXt's convolutional features do not naturally pool into a
+holistic, writer-discriminative summary the way a Transformer's
+attention-pooled CLS token does, independent of the specific dataset --
+is now substantially stronger than a single-dataset result could
+support. Section~\ref{sec:limitations} is updated accordingly.
+
 %% ====================================================================
 \section{Discussion}
 \label{sec:discussion}
@@ -1115,13 +1143,21 @@ reported numbers to be incorrect on their own benchmark.}
   $5\times$ higher \texttt{WRITER\_W}) produced no measurable change
   across 8 epochs, weakening the adapter-artifact explanation but not
   eliminating it outright -- a single tuning attempt on a single dataset is
-  not conclusive. This leaves the throughline's architecture-family claim
-  resting on the correlational ResNet-18 comparison
-  (Table~\ref{tab:encoder-ablation}) rather than a matched-capacity causal
-  one; the most direct remaining follow-up is a second dataset (to test
-  whether the dissociation is BnHTRD-specific) rather than further
-  same-dataset tuning, which this study's negative tuning result already
-  argues against as the next step.
+  not conclusive. A second, independently collected Bangla dataset
+  (BanglaWriting~\citep{mridha2021banglawriting}, 260 writers, no shared
+  writers or acquisition pipeline with BnHTRD) was run as the natural next
+  step instead of further same-dataset tuning, and reproduced the
+  dissociation closely: 68.30\% ViT vs.\ 0.75\% ConvNeXt validation
+  writer-identification accuracy (chance $\approx 0.38\%$), with both
+  encoders' recognition loss falling normally throughout
+  (Section~\ref{sec:arf-results}). This still leaves the throughline's
+  architecture-family claim resting on the correlational ResNet-18
+  comparison (Table~\ref{tab:encoder-ablation}) rather than a
+  matched-capacity causal Stage~I/II unlearning run, since ConvNeXt never
+  reached that stage on either dataset; the most direct remaining
+  follow-up is a cross-script dataset (Latin-script handwriting) to test
+  whether the dissociation is Bangla-specific or holds independent of
+  script.
 \item Table~\ref{tab:gradet-compare}'s comparison against GraDeT-HTR uses
   each study's own reported numbers rather than a re-run under identical
   splits and preprocessing, and should be read as contextual rather than
