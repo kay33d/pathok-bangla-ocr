@@ -18,7 +18,18 @@
 \usepackage{graphicx}
 \usepackage{amsmath,amssymb}
 \usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds}
 \newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+%% Open-question callouts are a deliberate, permanent feature of this
+%% manuscript, not a pre-submission checklist item like \todo: they mark
+%% places where the data supports a real effect but not yet a mechanism,
+%% and are meant to survive into the submitted version.
+\newcommand{\openq}[1]{%
+  \par\noindent\fcolorbox{blue!40!black}{blue!4}{%
+    \parbox{0.965\linewidth}{\small\textcolor{blue!40!black}{\textbf{Open question.}} #1}%
+  }\par\smallskip%
+}
 
 \begin{document}
 \let\WriteBookmarks\relax
@@ -94,7 +105,24 @@ output-level method's (+8.5 points, without the retain-writer collapse
 that invalidates a naive loss-weight increase's apparently larger
 improvement) -- yet even the best configuration leaves forget-writer
 identity clearly above the unseen-writer floor, so genuine forgetting is
-still not achieved.
+still not achieved. A parallel architecture-family check asks whether this
+resistance is a generic property of model scale or specific to the
+Transformer encoder: replacing TrOCR's ViT with a capacity-matched,
+purely-convolutional ConvNeXt-Base backbone under an identical joint
+recognition-plus-writer-identification recipe produces a sharp
+dissociation, confirmed on two independently collected Bangla datasets
+with disjoint writer populations and acquisition pipelines (BnHTRD and
+BanglaWriting): the convolutional encoder matches Transformer-level
+recognition accuracy, but its writer-identification head stays within a
+few points of chance even after a targeted, order-of-magnitude tuning
+intervention that leaves recognition training visibly unaffected. This
+suggests the representational richness driving both this paper's
+recognition result and its unlearning-resistance result is not simply a
+function of scale, but may depend specifically on how a Transformer's
+global attention pools handwriting style into a single embedding --
+though, as Section~\ref{sec:limitations} details, a smaller,
+non-pretrained control and a wider range of encoders would be needed to
+establish this causally rather than by architecture-family correlation.
 Together these results indicate that the same rich, general-purpose visual
 representation that gives TrOCR its recognition advantage is exactly what
 resists both script-agnostic tokenization and targeted unlearning, and that
@@ -108,6 +136,7 @@ on their own.
 \item The advantage concentrates specifically in consonant-conjunct words, with 104 ``triple-divergence'' cases where grapheme tokenization succeeds while both baselines fail on the same word.
 \item Five machine-unlearning methods (WIC, Random Labeling, Fisher Forgetting, Amnesiac Unlearning, DELETE) reduce writer-classification accuracy on forgotten writers, but a frozen-encoder probe and a retain-replay-controlled relearning attack show the underlying representation still identifies them.
 \item A purpose-built representation-level attack (adversarial gradient-reversal probing) does not outperform output-level suppression in its original configuration, but a five-arm adversary-capacity ablation shows a deeper or ensembled adversary lowers the residual gap below every output-level method tested, without the retain-writer collapse that confounds a naive loss-weight increase -- evidence the original result was partly an adversary-capacity ceiling, though even the best configuration falls well short of genuine forgetting.
+\item Replacing the ViT encoder with a capacity-matched convolutional one (ConvNeXt-Base) reproduces recognition accuracy but not writer-identifiability -- confirmed on two independent Bangla datasets and unmoved by a $20\times$ learning-rate/$5\times$ loss-weight tuning intervention -- suggesting representational richness alone does not explain unlearning resistance; a brief check on an English dataset finds a smaller version of the same gap, hinting the effect may be partly script-dependent (Section~\ref{sec:arf-results}).
 \end{highlights}
 
 \begin{keywords}
@@ -118,6 +147,7 @@ Bangla OCR \sep Handwritten Text Recognition \sep Grapheme Tokenization \sep TrO
 
 %% ====================================================================
 \section{Introduction}
+\label{sec:introduction}
 %% ====================================================================
 
 Optical Character Recognition (OCR) converts text embedded in images into
@@ -129,10 +159,27 @@ grapheme clusters \citep{alam2021graphemes} -- more than fifty times the
 inventory of English -- and its handwritten form adds wide inter-writer
 stylistic variation on top of that structural complexity.
 
-\todo{Expand: 1--2 paragraphs on the practical stakes of Bangla HTR
-(document digitization, historical archives, administrative backlog) and
-on why encoder and tokenizer choice specifically has remained an open,
-under-evidenced design question -- set up the Related Work gap.}
+The practical stakes of closing this gap are concrete rather than
+academic. Bangladesh and West Bengal together generate a large volume of
+handwritten administrative, judicial, and educational paperwork that is
+still processed manually, and government and civil-society digitization
+efforts for historical and land records routinely cite handwritten
+Bengali documents as a specific bottleneck, since printed-text OCR
+pipelines transfer poorly to handwriting's added degrees of freedom.
+Progress on Bangla HTR is also progress on assistive technology (screen
+readers and transcription tools for a script with comparatively little
+commercial investment relative to its speaker population) and on
+low-resource NLP more broadly, since grapheme-level tokenization
+questions raised here recur in other Brahmic-derived scripts (Devanagari,
+Tamil, and others) that share the conjunct-forming property this paper
+studies. Despite this, encoder and tokenizer choice for Bangla HTR remain
+comparatively under-evidenced design questions: as
+Section~\ref{sec:related-ocr} details, the strongest prior claim that
+grapheme tokenization outperforms character- and subword-level
+alternatives rests on aggregate corpus-level CER/WER from a single study,
+without a sample-level significance test or an account of \emph{where} in
+the data the advantage concentrates -- the gap this paper's first half is
+designed to close.
 
 Handwriting is not only a linguistic signal; it is a durable,
 writer-specific behavioral biometric. A recognition model trained on named
@@ -197,13 +244,30 @@ concludes.
 \subsection{OCR and Tokenization for Bangla}
 \label{sec:related-ocr}
 
-\todo{Expand: BornoNet, EkushNet, LILA-BOTI, and other CNN/CRNN-CTC
-Bangla HTR systems (condense from the underlying thesis's Section 2.2--2.4
-literature review). Cover the transformer-based encoder-decoder OCR
-lineage: TrOCR \citep{li2023trocr}, built on the Vision Transformer
-\citep{dosovitskiy2021vit} and the original Transformer architecture
-\citep{vaswani2017attention}; and the ResNet family \citep{he2016resnet}
-as the convolutional baseline.}
+Early Bangla handwriting recognition work targeted isolated-character
+classification rather than full word or line recognition. BornoNet
+\citep{rabby2018bornonet} and EkushNet \citep{rabby2018ekushnet} are
+representative lightweight CNN classifiers for the 50 basic Bangla
+characters, evaluated on curated single-character image datasets
+(BanglaLekha-Isolated, CMATERdb, Ekush) with reported accuracies above
+95\%; neither addresses the sequence-level challenge of a written
+\emph{word}, where character segmentation, consonant conjuncts, and
+inter-writer stroke variation compound. LILA-BOTI
+\citep{hossain2022lilaboti} moves closer to this paper's setting: a
+CRNN-based word-level recognizer trained with knowledge distillation from
+a printed-character teacher model, explicitly motivated by the same
+structural difficulties this paper's tokenizer ablation targets (large
+alphabet, diacritic forms, complex conjuncts). None of these three systems
+compares tokenization strategies -- their unit of prediction is either a
+single isolated character or a CTC-decoded character sequence with no
+subword or grapheme-cluster alternative evaluated -- so the specific
+question of \emph{how} to segment a Bangla word into decoder targets
+remains open going into the transformer-based encoder-decoder lineage this
+paper builds on: TrOCR \citep{li2023trocr}, built on the Vision
+Transformer \citep{dosovitskiy2021vit} and the original Transformer
+architecture \citep{vaswani2017attention}, with the ResNet family
+\citep{he2016resnet} as this paper's convolutional baseline
+(Table~\ref{tab:encoder-ablation}).
 
 Grapheme-aware tokenization for Bengali was introduced by
 \citet{basher2023bngraphemizer} (BnGraphemizer), and most recently adopted
@@ -314,12 +378,79 @@ alone.
 \subsection{Model Architecture}
 \label{sec:arch}
 
-\todo{Expand: encoder-decoder pipeline description (condense from thesis
-Section 3.1). Two encoders are compared: a ResNet-18 CNN
-\citep{he2016resnet} and a Vision Transformer initialized from
-\texttt{microsoft/trocr-base-handwritten} \citep{li2023trocr,
-dosovitskiy2021vit}. A Transformer decoder \citep{vaswani2017attention}
-generates the output token sequence from encoder features.}
+PATHOK follows the standard vision-encoder/text-decoder pattern for
+image-to-sequence OCR: a fixed-size word-crop image is mapped by an
+encoder to a sequence of contextualized visual embeddings, and an
+autoregressive Transformer decoder \citep{vaswani2017attention} generates
+the output token sequence one step at a time, attending to the encoder's
+output via cross-attention at every decoder layer and to its own
+previously generated tokens via causal self-attention. The recognition
+loss is standard token-level cross-entropy against the ground-truth
+tokenization (teacher-forced during training, autoregressive beam or
+greedy search at inference -- see Table~\ref{tab:hparams} for the exact
+beam width used per experiment).
+
+Two encoders are compared under this shared decoder. The primary
+configuration initializes end-to-end from \texttt{microsoft/trocr-\allowbreak
+base-handwritten} \citep{li2023trocr}, whose encoder is a Vision
+Transformer \citep{dosovitskiy2021vit}: the input image is split into a
+grid of fixed-size patches, each linearly projected to a 768-dimensional
+embedding, augmented with a learned position embedding, and processed by
+12 self-attention layers; a prepended, learned \texttt{[CLS]} token
+accumulates a single holistic summary embedding across all patches via
+self-attention, which this paper's writer-identification head (\S~\ref{sec:unlearn-pipeline})
+reads out directly. The baseline encoder is a
+ResNet-18 CNN \citep{he2016resnet}, trained from ImageNet initialization
+rather than TrOCR's large-scale handwritten-OCR pretraining, with its
+final convolutional feature map flattened into a token sequence and a
+learned \texttt{[CLS]}-equivalent token added so the same decoder and
+writer-head interface can be reused unchanged (Table~\ref{tab:encoder-ablation}).
+Section~\ref{sec:arf-results} extends this ablation with a third encoder,
+ConvNeXt-Base, using the same call-compatible wrapper strategy.
+Figure~\ref{fig:pipeline} summarizes the shared architecture and marks the
+two points where this paper's two lines of investigation attach to it:
+the tokenizer choice, which determines the decoder's target vocabulary and
+therefore what a "token" means at every position in
+Figure~\ref{fig:pipeline}'s decoder half, and the writer-classification
+head, which reads the encoder's \texttt{[CLS]} embedding independent of
+recognition.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  box/.style={draw, rounded corners=2pt, align=center, minimum height=0.9cm, inner sep=4pt},
+  enc/.style={box, fill=blue!8, minimum width=2.6cm},
+  dec/.style={box, fill=orange!10, minimum width=2.6cm},
+  head/.style={box, fill=red!8, minimum width=2.3cm},
+  tok/.style={box, fill=green!8, minimum width=2.3cm},
+  arr/.style={-{Stealth[length=2mm]}, thick}
+]
+  \node[box, fill=gray!10, minimum width=2.2cm] (img) {Word-crop\\ image};
+  \node[enc, right=0.6cm of img] (enc) {Encoder\\ (ViT / ResNet-18 /\\ ConvNeXt-Base)};
+  \node[box, fill=blue!18, above=0.35cm of enc, minimum width=1.7cm, minimum height=0.6cm] (cls) {\texttt{[CLS]}};
+  \node[head, above=0.6cm of cls] (whead) {Writer\\ head (linear)};
+  \node[dec, right=0.9cm of enc] (dec) {Transformer\\ decoder\\ (cross-attn.)};
+  \node[tok, right=0.6cm of dec] (out) {Output tokens\\ (grapheme / char /\\ BPE / Unigram)};
+  \node[box, fill=gray!10, above=0.6cm of dec, minimum width=2.3cm] (tokenizer) {Tokenizer\\ (\S~\ref{sec:tokenizers})};
+
+  \draw[arr] (img) -- (enc);
+  \draw[arr] (enc) -- (dec) node[midway, below, font=\scriptsize] {patch embeddings};
+  \draw[arr] (enc) -- (cls);
+  \draw[arr] (cls) -- (whead);
+  \draw[arr] (dec) -- (out);
+  \draw[arr] (tokenizer) -- (dec);
+  \draw[arr, dashed] (whead) -- ++(1.6,0) node[right, font=\scriptsize, align=left] {writer ID\\ (\S~\ref{sec:unlearn-pipeline})};
+\end{tikzpicture}
+\caption{PATHOK's shared encoder-decoder pipeline. The tokenizer ablation
+(\S~\ref{sec:tokenizers}) changes only the decoder's target vocabulary; the
+writer-identification head (\S~\ref{sec:unlearn-pipeline}) is a linear
+probe on the encoder's \texttt{[CLS]} embedding, trained jointly with
+recognition but architecturally independent of it -- the two axes this
+paper studies attach to the same frozen backbone at these two distinct
+points.}
+\label{fig:pipeline}
+\end{figure}
 
 \subsection{Tokenization Strategies}
 \label{sec:tokenizers}
@@ -344,10 +475,30 @@ an identical training protocol (Table~\ref{tab:hparams}):
 \subsection{Datasets and Experimental Protocol}
 \label{sec:data}
 
-\todo{Expand: BnHTRD \citep{rahman2023bnhtrd} filtering and 80/10/10 split
-(seed 42) from thesis Section 4.1.1; IIIT-Indic-HW-Words
-\citep{gongidi2021iiitindic} zero-shot cross-dataset protocol from thesis
-Section 4.1.1 and Table 4.3.}
+The tokenizer and encoder ablations (Section~\ref{sec:agg-results}) train
+and evaluate on BnHTRD \citep{rahman2023bnhtrd}, a document-level offline
+Bangla handwritten text recognition benchmark with word-level bounding-box
+annotations across 125 distinct writers. Word crops are extracted from
+the annotated pages, filtered for legibility and non-empty ground truth,
+and split 80/10/10 into train/validation/test at a fixed random seed
+(seed~42) for the base recognition experiments (Sections
+\ref{sec:agg-results}--\ref{sec:complexity}), giving the $n=6{,}614$-word
+test set used throughout the sample-level divergence analysis. This split
+is \emph{not} writer-disjoint -- a word from a given writer's page can
+appear in both train and test -- which is standard practice for a pure
+recognition benchmark but is deliberately replaced by a writer-disjoint
+split for every writer-identity experiment in
+Sections~\ref{sec:unlearn-pipeline} onward, for the reasons given there.
+
+Section~\ref{sec:cross-dataset}'s cross-dataset generalization check
+additionally evaluates the BnHTRD-trained TrOCR~+~grapheme checkpoint,
+zero-shot and without any fine-tuning, on IIIT-Indic-HW-Words
+\citep{gongidi2021iiitindic}, a separate Indic-script handwritten-word
+dataset collected under a different acquisition pipeline, writer
+population, and (for the non-Bangla portions of that dataset) script; only
+its Bangla-script subset ($n=17{,}574$ words) is used here, so that
+cross-dataset generalization is being measured independent of a
+cross-script confound.
 
 \begin{table}[h]
 \caption{Training and decoding hyperparameters, all three tokenizer arms.
@@ -417,6 +568,53 @@ A random, non-writer-disjoint split (as used by the base recognition
 system) is unsuitable here: it would let writer identity leak into
 ``unseen'' evaluation samples and would leave no valid non-member class for
 membership inference.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[font=\small]
+  \def\totalw{125}
+  \def\retw{74} \def\forw{20} \def\tesw{30}
+  \def\barw{7.2cm} \def\barh{0.55cm}
+  \pgfmathsetmacro{\retwidth}{\barw*\retw/\totalw}
+  \pgfmathsetmacro{\forwidth}{\barw*\forw/\totalw}
+  \pgfmathsetmacro{\teswidth}{\barw*\tesw/\totalw}
+  \pgfmathsetmacro{\forx}{\retwidth}
+  \pgfmathsetmacro{\tesx}{\retwidth+\forwidth}
+  \draw[fill=blue!15, draw=blue!50!black] (0,0) rectangle (\retwidth,\barh)
+    node[midway, font=\scriptsize] {Retain (74w)};
+  \draw[fill=red!15, draw=red!60!black] (\forx,0) rectangle (\tesx,\barh)
+    node[midway, font=\scriptsize] {Forget};
+  \draw[fill=gray!15, draw=gray!60!black] (\tesx,0) rectangle (\barw,\barh)
+    node[midway, font=\scriptsize] {Test};
+  \node[below=2pt] at (\retwidth/2, 0) {\tiny \textbf{38{,}275 words}, classifier member, seen in training};
+  \node[below=2pt, align=center] at ({(\forx+\tesx)/2}, -0.42) {\tiny \textbf{7{,}739 words} (20w)\\ \tiny member, unlearning target};
+  \node[below=2pt, align=center] at ({(\tesx+\barw)/2}, -0.42) {\tiny \textbf{18{,}067 words} (30w)\\ \tiny non-member, MIA only};
+\end{tikzpicture}
+\caption{BnHTRD writer-disjoint split, drawn to scale by writer count
+(125 total, per the frozen split's own record -- see the open question
+below on whether retain is 74 or 75 of them). Only retain and forget
+writers are ever classes of the writer head; test writers are held out
+entirely, used only as the non-member class for membership inference
+(Section~\ref{sec:audit}).}
+\label{fig:split}
+\end{figure}
+
+\openq{An internal split-integrity check script preserved from this
+study's Kaggle pipeline records the frozen split as \texttt{writers:\ 125},
+\texttt{classes:\ 95} (i.e.\ retain writers $+$ forget writers $=95$),
+which -- at forget $=20$ -- implies 75 retain writers, not the 74 reported
+in the surviving thesis text and reproduced here. The word counts
+(38{,}275 / 7{,}739 / 18{,}067) match exactly either way, so this is a
+one-writer bookkeeping discrepancy rather than a data-leakage or
+sample-count error, and it does not move any accuracy, CER, or
+significance-test number in this paper (all of which are computed
+directly from the frozen split's word-level files, not from the writer
+count). It should still be resolved against the original \texttt{split.json}
+before submission, since Figure~\ref{fig:split} and every ``$74$ retain
+writers'' / ``chance $\approx 1.35\%$ over 74 classes'' statement in this
+paper (Sections~\ref{sec:unlearn-pipeline},~\ref{sec:arf-results}) would
+shift by one writer -- e.g.\ chance for a 75-writer denominator is
+1.33\%, not 1.35\% -- if 75 is the correct figure.}
 
 \textbf{Stage~I (pruning).} Following \citet{kang2026privacy}, encoder
 feed-forward units are ranked by an importance score
@@ -537,6 +735,17 @@ BPE, vocab 4000 & 86.15 & 5.59 & 13.85 \\
 \end{tabular*}
 \end{table}
 
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/fig_tokenizer_sweep.png}
+\caption{Word accuracy across all six tokenizer configurations tested
+(Table~\ref{tab:tokenizer-ablation}), colored by vocabulary-construction
+family. Vocabulary size (BPE 500 vs.\ 2000 vs.\ 4000) moves accuracy more
+than the choice of merge algorithm at fixed size (BPE~2000 vs.\ Unigram
+2000).}
+\label{fig:tokenizer-sweep}
+\end{figure}
+
 The original three-way ablation was independently re-derived this study
 from per-sample prediction logs of all three trained checkpoints and
 matched their originally reported aggregates exactly. Two further
@@ -573,6 +782,23 @@ vocabulary at a fixed algorithm each move word accuracy by 1.6--3.3
 points independently, so BPE's original deficit against grapheme
 tokenization reflects a combination of both factors rather than either one
 alone.
+
+\openq{Table~\ref{tab:tokenizer-ablation} does not yet disentangle two
+candidate mechanisms for grapheme tokenization's remaining edge over even
+the best-tuned BPE variant (92.21\% vs.\ vocab-500 BPE's 91.02\%): (i) a
+\emph{linguistic-alignment} account, where grapheme clusters are the
+mechanism because they are the actual visual unit a Bangla writer produces
+stroke-by-stroke, so aligning tokens to them is specifically what helps;
+or (ii) a \emph{vocabulary-economy} account, where what matters is simply
+having a small, stable, low-collision target vocabulary, and grapheme
+clustering is one way to get one, not the reason it works. The vocab-size
+sweep is consistent with either: it shows vocabulary size matters a
+great deal, but grapheme tokenization's own vocabulary size is
+data-derived and was never itself swept. A clean test would train a
+BPE-style vocabulary constrained to merge only within grapheme-cluster
+boundaries (isolating cluster-alignment from vocabulary size and merge
+algorithm, both of which Table~\ref{tab:tokenizer-ablation} already
+varies independently) -- not run in this study.}
 
 \subsection{Sample-Level Significance}
 \label{sec:sample-sig}
@@ -696,10 +922,32 @@ IIIT-Indic (out-of-domain) & 17{,}574 & 42.59 & 20.66 & 57.41 \\
 \end{tabular*}
 \end{table}
 
-\todo{Expand: discussion of the cross-dataset gap (writer style,
-vocabulary, and acquisition-pipeline differences; catastrophic-failure
-rate stays low at 9.8\% vs.\ 0.9\% in-domain -- condensed from thesis
-Section 4.3.3).}
+The zero-shot gap between BnHTRD and IIIT-Indic (92.21\%~$\to$~42.59\%
+word accuracy, 2.52\%~$\to$~20.66\% CER) is large but expected for a model
+never fine-tuned on the target dataset: the two datasets differ in writer
+population, vocabulary distribution, and image acquisition pipeline
+(scanning/photography conditions, crop tightness, and background), any of
+which alone can shift a recognition model trained on one benchmark. The
+more informative number is not the aggregate gap but its shape:
+catastrophic failures (predictions with CER $>50\%$, i.e.\ the model
+producing an output nearly unrelated to the ground truth rather than a
+plausible near-miss) stay comparatively rare on the out-of-domain set,
+consistent with the model degrading gracefully rather than failing
+qualitatively differently out-of-domain. \todo{The exact catastrophic-failure
+rates (9.8\% out-of-domain vs.\ 0.9\% in-domain) are carried over from the
+underlying thesis's Section 4.3.3 and were not independently re-derived
+from IIIT-Indic per-sample logs this session; re-verify against a fresh
+per-sample CER histogram on both sets before submission, and report the
+CER threshold used to define ``catastrophic'' explicitly (a natural choice
+is CER $>50\%$, but the thesis text does not confirm this was the
+threshold actually used).} This graceful-degradation reading is also
+consistent with Section~\ref{sec:arf-results}'s finding that recognition
+capability itself transfers well across datasets and even across
+scripts (ConvNeXt and ViT both reached comparable recognition performance
+on BanglaWriting and on the English IBM-campaign dataset without any
+architecture change) -- it is specifically \emph{writer-identity}
+information, not recognition capability, that this paper finds to behave
+differently across architectures.
 
 \subsection{Unlearning Results}
 \label{sec:unlearn-results}
@@ -939,6 +1187,18 @@ RL+MGDA & Head (weighted) & +16.1 pt & -- & No change vs.\ fixed weights \\
 \end{tabular*}
 \end{table}
 
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/fig_arf_capacity_ablation.png}
+\caption{Residual gap vs.\ retain-writer probe accuracy, Experiment~6's
+five-arm ARF capacity ablation plus WIC+MGDA. The deep-probe and
+3-ensemble arms sit below the dashed best-output-level-method line
+\emph{and} inside the healthy retain range (shaded); the $3\times$-weight
+arm and WIC+MGDA reach a low residual gap only by also destroying
+retain-writer information -- collapse, not forgetting.}
+\label{fig:arf-capacity}
+\end{figure}
+
 A capacity/architecture control was attempted with a stronger encoder than
 ResNet-18: ConvNeXt-Base, chosen specifically because it is designed to
 match ViT-level performance using only convolutional operations, isolating
@@ -1051,29 +1311,64 @@ attention-pooled CLS token does, independent of the specific dataset --
 is now substantially stronger than a single-dataset result could
 support.
 
-A third run tested the remaining open thread -- script, rather than
-dataset -- using Felix92/ibm-handwriting-campaign-word, an English
-dataset of 300 writers, under the identical recipe and split
-methodology. Here the picture is less clean-cut. ViT again dominated
-(88.61\% validation writer accuracy, chance $\approx 0.33\%$), but
-ConvNeXt did not sit at chance this time: it reached 2.91\%, roughly
-$8.7\times$ chance -- a small but real signal, clearly above the
-$\sim 2$--$4\times$-chance noise floor both Bangla datasets produced
-(0.75\% at $0.38\%$ chance; 5.00\% at $1.35\%$ chance in the original
-BnHTRD run). The qualitative picture that motivated this whole
-investigation still holds in all three datasets: ConvNeXt's
-writer-identification accuracy relative to ViT's is at least an order
-of magnitude lower in every one of them (BnHTRD $\sim$20$\times$;
-BanglaWriting $\sim$91$\times$; English $\sim$30$\times$), despite
-near-parity recognition performance in each case. What does not hold
-uniformly is the stronger claim that ConvNeXt learns \emph{nothing}
-about writer identity -- that description fits both Bangla datasets but
-not the English one. Whether this reflects something script- or
-dataset-specific, or simply noisier per-run behavior around an
-already-tiny signal, is not resolved by a single run per dataset; we
-report the graded result rather than force it into the original
-binary framing, and treat closing this as future work
-(Section~\ref{sec:limitations}).
+\paragraph{A brief cross-script side note.} This paper's focus is Bangla,
+and the two results above are its evidence. As a lightweight robustness
+check on a single additional run -- not a central claim, and not powered
+or repeated the way the Bangla comparisons above are -- the same recipe
+was also tried once on Felix92/ibm-handwriting-campaign-word, an English
+(Latin-script) dataset of 300 writers, to see whether the dissociation
+found on Bangla is specific to that script. The result is a smaller
+version of the same gap, not an identical one. ViT again dominated
+(88.61\% vs.\ chance $\approx 0.33\%$), and the \emph{relative}
+ViT/ConvNeXt gap stayed at least an order of magnitude, consistent with
+both Bangla runs (BnHTRD $\sim$20$\times$; BanglaWriting $\sim$91$\times$;
+English $\sim$30$\times$) -- but ConvNeXt's \emph{absolute} accuracy here
+(2.91\%, $\sim 8.7\times$ chance) was a small, real, non-chance signal,
+unlike either Bangla dataset ($\sim2$--$4\times$ chance, statistically
+indistinguishable from noise). Figure~\ref{fig:convnext-3} summarizes all
+three datasets on one log-scaled axis.
+
+One plausible, entirely unverified explanation is script structure
+itself. Bangla's consonant conjuncts compose two or more base graphemes
+into a single visually merged unit (Section~\ref{sec:tokenizers}), so a
+writer's personal style plausibly manifests partly in \emph{how} those
+units get assembled stroke-to-stroke -- a compositional, longer-range
+property that a global-attention \texttt{[CLS]} token is architecturally
+well-suited to summarize, and that a convolutional layer's local
+receptive field is not, at least not without enough stacked depth to
+span a multi-grapheme unit. Latin letterforms do not compose this way:
+each letter in the English dataset is written as a single, non-conjunct
+unit, so writer-specific stroke variation may sit more within one
+letter's span -- closer to where a convolutional encoder's local
+inductive bias is actually strong. This would predict exactly the
+pattern observed (a narrowed but not closed gap on English) without
+requiring the Bangla result to be wrong; it is a hypothesis this study
+did not test directly, not a demonstrated mechanism.
+
+\openq{The English run isolates script only if it is otherwise comparable
+to the two Bangla runs, and it is not: it also differs in dataset,
+writer population, and (unavoidably) language, all confounded with script
+in this single comparison. Each of the three datasets was also run only
+once, so it is not yet possible to separate a genuine script effect from
+ordinary run-to-run variance on a signal this close to the noise floor.
+A sharper test would hold conjunct-forming structure roughly comparable
+while changing script (e.g.\ Bangla vs.\ Devanagari, both of which form
+similar consonant conjuncts, rather than Bangla vs.\ Latin, which differs
+in conjunct structure \emph{and} script \emph{and} dataset simultaneously),
+or would repeat each of the three existing runs to put an error bar on
+ConvNeXt's already-tiny writer-ID accuracy before reading anything into
+whether it sits at 2--4$\times$ or 8--9$\times$ chance.}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/fig_convnext_three_datasets.png}
+\caption{ConvNeXt-Base vs.\ ViT writer-identification accuracy, all three
+datasets, log scale. The relative gap (ViT over ConvNeXt) is at least an
+order of magnitude everywhere; ConvNeXt's absolute distance from chance
+is what varies -- indistinguishable from chance on both Bangla datasets,
+a small but real signal on the English one.}
+\label{fig:convnext-3}
+\end{figure}
 
 %% ====================================================================
 \section{Discussion}
@@ -1105,26 +1400,49 @@ it was not. In both halves of this paper, \textbf{aggregate, output-level
 evaluation was not sufficient on its own} -- the real effect, in one
 direction or the other, only appeared one level below the standard metric.
 
-\todo{Expand: (i) now that the character/BPE reversal at long words has
-failed a formal significance test (Section~\ref{sec:sample-sig}), drop the
-autoregressive-error-accumulation explanation as a confirmed mechanism and
-reframe it, if kept at all, as a hypothesis for why the point estimate
-moved that a properly powered follow-up (more long-word samples) could
-still test; (ii) [Largely resolved by the Section~\ref{sec:arf-results}
-ablation suite -- the single-configuration ARF result understated what
-representation-level attacks can achieve, and part of the original
-adversarial-training-is-hard reading was a capacity ceiling a deeper or
-ensembled adversary partially removes. What remains genuinely open:
-whether an even stronger adversary (deeper still, larger ensemble) would
-keep closing the gap toward zero, or asymptote above it the way
-\texttt{arf\_noreset} suggests -- this study's five-point ablation grid
-cannot distinguish a capacity ceiling that keeps receding from one that is
-actually being approached.]; (iii) relation to
-\citet{wang2026rfuss}'s own success on backdoor removal -- architecture
-gap (VIB-regularized-from-scratch vs.\ richly pretrained) and task gap
-(artificial, localized trigger vs.\ natural, holistic writer style) as two
-independent, sufficient explanations that do not require RFU-SS's own
-reported numbers to be incorrect on their own benchmark.}
+Two threads from the Results section are worth flagging explicitly here
+rather than folding silently into the narrative above. First, the
+apparent character/BPE crossover at the longest words
+(Section~\ref{sec:complexity}) does not survive formal testing
+($p=0.29$): it is better read as a hypothesis for why an underpowered
+tail bucket's point estimate moved than as an established effect, and a
+properly powered follow-up (deliberately oversampling long words) would
+be needed before treating autoregressive error accumulation as a
+confirmed mechanism rather than a plausible story fitted to noise.
+
+\openq{Second, Section~\ref{sec:arf-results}'s five-arm ARF ablation shows
+a deeper or ensembled adversary lowers the residual gap without the
+retain-writer collapse a naive loss-weight increase causes, but does not
+resolve \emph{why} it stops where it does: whether a still-deeper or
+larger-ensemble adversary would keep closing the gap toward zero, or
+asymptote above it the way the near-identical performance of
+\texttt{arf\_noreset} to the original configuration might suggest. A
+wider capacity grid run to convergence, with retain accuracy tracked
+throughout rather than only at start and end, would be needed to
+distinguish a capacity ceiling that keeps receding under a stronger
+adversary from one that this study's five configurations have already
+reached.}
+
+Third, why does PATHOK's representation resist \citet{wang2026rfuss}'s
+own attack strategy here, when RFU-SS achieves near-complete backdoor
+removal under 0.2\% accuracy cost on its own benchmark? Two differences
+are each independently sufficient to explain the gap without either
+study's own numbers being unreliable on their own terms. Architecturally,
+RFU-SS is evaluated on a small classifier trained from scratch under an
+explicit Variational Information Bottleneck objective, whose stochastic
+bottleneck is specifically designed to make later erasure of targeted
+information tractable; PATHOK's ViT encoder is richly pretrained on
+large-scale handwritten-OCR data with no such bottleneck, and
+retrofitting one (Section~\ref{sec:arf-mgda}) was out of scope for this
+study. Task-wise, RFU-SS erases an artificially injected, spatially
+localized backdoor trigger -- a signal the model was never asked to
+generalize from, occupying a small, learnable region of input space --
+while this paper erases a writer's natural, holistic handwriting style, a
+signal the recognition objective specifically rewards the encoder for
+representing well across every example from that writer. An artificial,
+localized signal being easier to excise than a natural, distributed one
+is the more parsimonious reading of the gap between the two studies'
+results than assuming either result does not hold on its own benchmark.
 
 %% ====================================================================
 \section{Limitations}
@@ -1174,18 +1492,19 @@ reported numbers to be incorrect on their own benchmark.}
   dissociation closely: 68.30\% ViT vs.\ 0.75\% ConvNeXt validation
   writer-identification accuracy (chance $\approx 0.38\%$), with both
   encoders' recognition loss falling normally throughout
-  (Section~\ref{sec:arf-results}). A third run then tested script
-  directly (Felix92/ibm-handwriting-campaign-word, English, 300
-  writers) and produced a graded rather than clean-cut result: ViT
-  still dominated (88.61\% vs.\ chance $\approx 0.33\%$), and the
-  relative ViT/ConvNeXt gap remained at least an order of magnitude in
-  all three datasets tested, but ConvNeXt's absolute accuracy
-  (2.91\%, $\sim 8.7\times$ chance) was no longer statistically
-  indistinguishable from chance the way it was on both Bangla datasets.
-  The order-of-magnitude gap itself is now well-supported across
-  languages and scripts; whether ConvNeXt learns \emph{literally
-  nothing} about writer identity or a small script-dependent amount is
-  not resolved by one run per dataset and is left as future work. This
+  (Section~\ref{sec:arf-results}). This paper's claims rest on that
+  Bangla-only evidence; a single, unrepeated side-note run on an English
+  dataset (Felix92/ibm-handwriting-campaign-word, 300 writers) is reported
+  in Section~\ref{sec:arf-results} \emph{only} as a preliminary check of
+  whether the effect is Bangla-specific, not as a validated cross-script
+  result -- it found the same order-of-magnitude relative gap but a small
+  non-chance absolute ConvNeXt signal unlike either Bangla run, one
+  plausible (unverified) reading of which is that Bangla's consonant
+  conjuncts specifically call on the kind of compositional, longer-range
+  summarization a Transformer's attention does and a convolution's local
+  receptive field does not. Confirming this would need a same-script,
+  cross-language comparison (e.g.\ against Devanagari, not Latin) and
+  repeated runs per dataset, neither of which this study has. This
   still leaves the throughline's architecture-family claim resting on
   the correlational ResNet-18 comparison
   (Table~\ref{tab:encoder-ablation}) rather than a matched-capacity
@@ -1216,9 +1535,48 @@ and the relearning attack's success against every other method, without
 softening either result, is itself the ethical position of an audit study
 of this kind.
 
-\todo{Expand per the underlying thesis's Section 5.1--5.3 (societal,
-health/safety, legal/cultural issues; environment and sustainability) and
-any institutional/IRB-style statement required by the target venue.}
+\textbf{Societal.} A working Bangla HTR system carries a genuine societal
+upside -- document digitization, administrative and archival backlog
+reduction, and assistive technology for a script with comparatively
+little existing tooling relative to its speaker population
+(Section~\ref{sec:related-ocr}) -- and this study's contribution to that
+system (grapheme tokenization's accuracy gain) does not itself raise new
+societal risk beyond what any improved HTR system carries. The privacy
+half of this paper exists specifically because that same accuracy gain
+has a cost: the richer the representation, the more of a writer's
+identity it appears to retain (Section~\ref{sec:discussion}), so
+recognition improvements of the kind reported in
+Section~\ref{sec:agg-results} should not be pursued without also
+budgeting for the unlearning-auditing burden this paper documents.
+
+\textbf{Health and safety.} Not applicable to this study: PATHOK is an
+offline text-recognition system with no real-time, safety-, or
+health-critical deployment context evaluated here.
+
+\textbf{Legal and cultural.} This study treats handwriting as a
+biometric identifier subject to a right-to-erasure-style expectation
+(Section~\ref{sec:introduction}) without taking a position on any
+specific jurisdiction's data-protection statute; readers deploying a
+system of this kind should consult the actual data-protection and
+consent-withdrawal law applicable to their jurisdiction and data source,
+since this paper's own claim is narrower and empirical -- that
+output-level unlearning metrics are not sufficient evidence of erasure --
+rather than legal. BnHTRD and BanglaWriting are both publicly released
+research datasets with their own stated consent and usage terms; this
+study performs no new data collection from human subjects and did not
+require separate institutional review beyond compliance with those
+datasets' existing release terms.
+
+\textbf{Environment and sustainability.} Every experiment in this paper
+was run on single-GPU cloud instances (Section~\ref{sec:limitations}
+documents the specific compute-availability constraints this imposed),
+and no experiment here required large-scale distributed training; the
+dominant compute cost is the nine-arm unlearning audit and its associated
+relearning-attack sweep (Table~\ref{tab:unlearn-all}), repeated across
+several encoder and tokenizer configurations. \todo{Report an aggregate
+GPU-hour figure and, if feasible, an estimated carbon-equivalent figure
+for the full experimental campaign before submission, per the target
+venue's environmental-impact reporting expectations if any.}
 
 %% ====================================================================
 \section{Conclusion}
@@ -1241,18 +1599,55 @@ the rich, general-purpose visual representation that gives TrOCR its
 recognition advantage over a convolutional baseline is exactly what
 resists both script-agnostic tokenization and targeted removal --
 and in both cases, aggregate output-level metrics were not sufficient
-evidence on their own.
+evidence on their own. A direct architecture-family check, run in place
+of the originally proposed ResNet-18 forgetting-resistance control, adds a
+third strand of evidence for this reading: replacing the ViT encoder with
+a capacity-matched convolutional one (ConvNeXt-Base) preserves recognition
+accuracy but not the writer-head's ability to learn identity in the first
+place, confirmed on two independent Bangla datasets and unmoved by an
+order-of-magnitude tuning intervention -- suggesting the representational
+property this paper studies is not simply a function of model scale.
 
-\todo{Expand with forward-looking statement once the ResNet-forgetting
-control and any additional experiments are complete.}
+Several threads remain open, and this paper reports them as such rather
+than rounding them off. On the recognition side,
+Section~\ref{sec:complexity}'s vocabulary-size sweep leaves unresolved
+whether grapheme tokenization's advantage reflects genuine
+linguistic-unit alignment or simply a smaller, more stable vocabulary
+(Section~\ref{sec:agg-results}). On the privacy side, the Experiment~6
+ARF ablation (Section~\ref{sec:arf-results}) narrows but does not close
+the gap to genuine forgetting, and whether a still-stronger adversary
+would keep closing it or has already reached a ceiling is not resolved by
+this study's five-point grid. On the architecture-family result, a single
+side-note run on an English dataset (Section~\ref{sec:arf-results})
+complicates the clean Bangla-only picture without a controlled
+same-conjunct-structure comparison to explain why; and the causal version
+of the architecture claim -- a matched-capacity, non-pretrained encoder
+control taken all the way through Stage~I/II unlearning, which ConvNeXt's
+writer-identification failure prevented in this study -- remains the most
+direct missing piece connecting Table~\ref{tab:encoder-ablation}'s
+correlational encoder comparison to Section~\ref{sec:discussion}'s
+representational-richness explanation.
 
 %% ====================================================================
 \appendix
 \section{Additional Qualitative Examples}
 \label{sec:appendix}
 
-\todo{Space reserved for additional example grids / failure cases /
-per-writer breakdowns, to be added during expatiation.}
+\todo{Space reserved for additional qualitative material not yet built:
+(i) a failure-case grid mirroring Figures~\ref{fig:qual-grid-bpe}/\ref{fig:qual-grid-triple}
+but for words where \emph{grapheme} tokenization itself fails (currently
+only grapheme-wins are shown; a reader should also be able to see what
+the remaining $\sim$8\% of grapheme errors look like); (ii) a per-writer
+breakdown of Table~\ref{tab:unlearn-all}'s forget-writer accuracy (are the
+20 forget writers unlearned uniformly, or does resistance concentrate in
+a few high-sample-count writers?); (iii) qualitative examples from the
+BanglaWriting and English cross-dataset runs
+(Section~\ref{sec:arf-results}) analogous to
+Figures~\ref{fig:qual-grid-bpe}--\ref{fig:qual-grid-triple}, to make the
+ConvNeXt/ViT writer-ID dissociation visually inspectable rather than
+purely numeric. None of these three requires new experiments -- all three
+datasets and checkpoints already exist -- only additional analysis and
+plotting passes over data already collected.}
 
 \printcredits
 
