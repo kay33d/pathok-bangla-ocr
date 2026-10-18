@@ -1049,7 +1049,31 @@ ConvNeXt's convolutional features do not naturally pool into a
 holistic, writer-discriminative summary the way a Transformer's
 attention-pooled CLS token does, independent of the specific dataset --
 is now substantially stronger than a single-dataset result could
-support. Section~\ref{sec:limitations} is updated accordingly.
+support.
+
+A third run tested the remaining open thread -- script, rather than
+dataset -- using Felix92/ibm-handwriting-campaign-word, an English
+dataset of 300 writers, under the identical recipe and split
+methodology. Here the picture is less clean-cut. ViT again dominated
+(88.61\% validation writer accuracy, chance $\approx 0.33\%$), but
+ConvNeXt did not sit at chance this time: it reached 2.91\%, roughly
+$8.7\times$ chance -- a small but real signal, clearly above the
+$\sim 2$--$4\times$-chance noise floor both Bangla datasets produced
+(0.75\% at $0.38\%$ chance; 5.00\% at $1.35\%$ chance in the original
+BnHTRD run). The qualitative picture that motivated this whole
+investigation still holds in all three datasets: ConvNeXt's
+writer-identification accuracy relative to ViT's is at least an order
+of magnitude lower in every one of them (BnHTRD $\sim$20$\times$;
+BanglaWriting $\sim$91$\times$; English $\sim$30$\times$), despite
+near-parity recognition performance in each case. What does not hold
+uniformly is the stronger claim that ConvNeXt learns \emph{nothing}
+about writer identity -- that description fits both Bangla datasets but
+not the English one. Whether this reflects something script- or
+dataset-specific, or simply noisier per-run behavior around an
+already-tiny signal, is not resolved by a single run per dataset; we
+report the graded result rather than force it into the original
+binary framing, and treat closing this as future work
+(Section~\ref{sec:limitations}).
 
 %% ====================================================================
 \section{Discussion}
@@ -1150,14 +1174,23 @@ reported numbers to be incorrect on their own benchmark.}
   dissociation closely: 68.30\% ViT vs.\ 0.75\% ConvNeXt validation
   writer-identification accuracy (chance $\approx 0.38\%$), with both
   encoders' recognition loss falling normally throughout
-  (Section~\ref{sec:arf-results}). This still leaves the throughline's
-  architecture-family claim resting on the correlational ResNet-18
-  comparison (Table~\ref{tab:encoder-ablation}) rather than a
-  matched-capacity causal Stage~I/II unlearning run, since ConvNeXt never
-  reached that stage on either dataset; the most direct remaining
-  follow-up is a cross-script dataset (Latin-script handwriting) to test
-  whether the dissociation is Bangla-specific or holds independent of
-  script.
+  (Section~\ref{sec:arf-results}). A third run then tested script
+  directly (Felix92/ibm-handwriting-campaign-word, English, 300
+  writers) and produced a graded rather than clean-cut result: ViT
+  still dominated (88.61\% vs.\ chance $\approx 0.33\%$), and the
+  relative ViT/ConvNeXt gap remained at least an order of magnitude in
+  all three datasets tested, but ConvNeXt's absolute accuracy
+  (2.91\%, $\sim 8.7\times$ chance) was no longer statistically
+  indistinguishable from chance the way it was on both Bangla datasets.
+  The order-of-magnitude gap itself is now well-supported across
+  languages and scripts; whether ConvNeXt learns \emph{literally
+  nothing} about writer identity or a small script-dependent amount is
+  not resolved by one run per dataset and is left as future work. This
+  still leaves the throughline's architecture-family claim resting on
+  the correlational ResNet-18 comparison
+  (Table~\ref{tab:encoder-ablation}) rather than a matched-capacity
+  causal Stage~I/II unlearning run, since ConvNeXt never reached that
+  stage on any of the three datasets.
 \item Table~\ref{tab:gradet-compare}'s comparison against GraDeT-HTR uses
   each study's own reported numbers rather than a re-run under identical
   splits and preprocessing, and should be read as contextual rather than
